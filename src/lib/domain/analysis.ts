@@ -113,6 +113,10 @@ export function hashAnalysisInput(snapshot: AnalysisSnapshot) {
   return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
 }
 
+export function isAnalysisStale(currentInputHash: string, latestInputHash?: string | null) {
+  return latestInputHash != null && latestInputHash !== currentInputHash;
+}
+
 export function effectiveStatus(aiStatus: ThreadStatus, userStatus: ThreadStatus | null) {
   return userStatus ?? aiStatus;
 }

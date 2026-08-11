@@ -6,6 +6,7 @@ import { analysisRuns, records, subjects, threads } from "@/lib/db/schema";
 import {
   effectiveStatus,
   hashAnalysisInput,
+  isAnalysisStale,
   normalizeAnalysisInput,
   type AnalysisSnapshot,
   type SubjectInput,
@@ -59,14 +60,15 @@ export async function getLatestAnalysis() {
 export async function getDashboardData() {
   const [subjectInputs, latest] = await Promise.all([getSubjectInputs(), getLatestAnalysis()]);
   const snapshot = normalizeAnalysisInput(subjectInputs);
+  const currentHash = hashAnalysisInput(snapshot);
   const recordCount = subjectInputs.reduce((sum, subject) => sum + subject.records.length, 0);
   return {
     subjects: subjectInputs,
     subjectCount: subjectInputs.length,
     recordCount,
     latest,
-    currentHash: hashAnalysisInput(snapshot),
-    stale: latest ? latest.run.inputHash !== hashAnalysisInput(snapshot) : false,
+    currentHash,
+    stale: isAnalysisStale(currentHash, latest?.run.inputHash),
   };
 }
 

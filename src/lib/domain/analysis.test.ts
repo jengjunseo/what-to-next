@@ -3,6 +3,7 @@ import {
   AnalysisResultSchema,
   effectiveStatus,
   hashAnalysisInput,
+  isAnalysisStale,
   normalizeAnalysisInput,
   validateEvidenceIds,
   type AnalysisResult,
@@ -46,10 +47,17 @@ describe("analysis contract", () => {
     expect(AnalysisResultSchema.parse(validResult)).toEqual(validResult);
   });
 
-  it("rejects scores outside 0-100 and unknown statuses", () => {
+  it("rejects an unknown status when every score is valid", () => {
     expect(AnalysisResultSchema.safeParse({
       ...validResult,
-      threads: [{ ...validResult.threads[0], strengthScore: 101, status: "MAYBE" }],
+      threads: [{ ...validResult.threads[0], status: "MAYBE" }],
+    }).success).toBe(false);
+  });
+
+  it("rejects a score outside 0-100 when the status is valid", () => {
+    expect(AnalysisResultSchema.safeParse({
+      ...validResult,
+      threads: [{ ...validResult.threads[0], strengthScore: 101 }],
     }).success).toBe(false);
   });
 
@@ -70,10 +78,17 @@ describe("normalized input and stale hash", () => {
     expect(hashAnalysisInput(normalizeAnalysisInput(a))).toBe(hashAnalysisInput(normalizeAnalysisInput(b)));
   });
 
-  it("changes when a real record changes", () => {
+  it("is not stale when the latest hash matches the current normalized input", () => {
+    const currentHash = hashAnalysisInput(normalizeAnalysisInput(a));
+    expect(isAnalysisStale(currentHash, currentHash)).toBe(false);
+  });
+
+  it("is stale when a real record changes after the latest analysis", () => {
+    const latestHash = hashAnalysisInput(normalizeAnalysisInput(a));
     const changed = structuredClone(a);
     changed[0].records[0].recordText = "내용이 바뀜";
-    expect(hashAnalysisInput(normalizeAnalysisInput(a))).not.toBe(hashAnalysisInput(normalizeAnalysisInput(changed)));
+    const currentHash = hashAnalysisInput(normalizeAnalysisInput(changed));
+    expect(isAnalysisStale(currentHash, latestHash)).toBe(true);
   });
 });
 
