@@ -90,7 +90,7 @@ export const EvidenceResultSchema = z.object({
   threads: z.array(ThreadSchema.pick({ title: true, status: true, reasoning: true }).extend({
     connection: ConnectionSchema.pick({ type: true, strength: true, question: true }).extend({
       evidence: z.array(recordId).min(2).max(4),
-      experiment: ExperimentSchema.nullable(),
+      experiment: ExperimentSchema.omit({ recordId: true }).extend({ excerptId: recordId }).nullable(),
     }),
   })).max(4),
   perspectives: z.array(PerspectiveSchema.omit({ evidenceRecordIds: true, quotes: true }).extend({

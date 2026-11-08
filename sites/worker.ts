@@ -16,13 +16,13 @@ function asset(body: string, type: string) {
 }
 
 const worker = {
-  fetch(request: Request, env: { GEMINI_API_KEY?: string }) {
+  fetch(request: Request, env: { GEMINI_API_KEY?: string; GEMINI_API_KEY_FALLBACK?: string }) {
     const { pathname } = new URL(request.url);
     if (pathname === "/api/demo-analysis" && request.method === "POST") {
       if (!request.headers.get("oai-authenticated-user-id")) {
         return Response.json({ stage: "input", message: "ChatGPT 로그인이 필요합니다." }, { status: 401 });
       }
-      return handleDemoAnalysis(request, env.GEMINI_API_KEY);
+      return handleDemoAnalysis(request, env.GEMINI_API_KEY?.trim() || env.GEMINI_API_KEY_FALLBACK?.trim());
     }
     if (request.method === "GET") {
       if (pathname === "/" || pathname === "/demo") return asset(HTML, "text/html");

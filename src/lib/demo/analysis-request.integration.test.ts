@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { indexedSubjects } from "@/lib/ai/record-excerpts";
+import worker from "../../../sites/worker";
 import { handleDemoAnalysis } from "./analysis-request";
 import { demoSnapshot, fixedResponse, SCENARIOS } from "./scenarios";
 
@@ -10,10 +11,17 @@ const firstExcerpts = new Map(indexedSubjects(snapshot).flatMap(({ records }) =>
   records.map(({ id, excerpts }) => [id, excerpts[0].id] as const)));
 const wireFixture = {
   focus: fixture.overall.biggestProblem,
-  threads: fixture.threads.map(({ title, status, reasoning, connection }) => ({
-    title, status, reasoning,
-    connection: { ...connection!, evidence: connection!.evidence.map(({ recordId }) => firstExcerpts.get(recordId)!) },
-  })),
+  threads: fixture.threads.map(({ title, status, reasoning, connection }) => {
+    const { recordId, ...proposal } = connection!.experiment!;
+    return {
+      title, status, reasoning,
+      connection: {
+        ...connection!,
+        evidence: connection!.evidence.map((item) => firstExcerpts.get(item.recordId)!),
+        experiment: { ...proposal, excerptId: firstExcerpts.get(recordId)! },
+      },
+    };
+  }),
   perspectives: fixture.perspectives!.map(({ aspect, grade, summary, uncertainty, quotes }) =>
     ({ aspect, grade, summary, uncertainty, evidence: quotes?.map(({ recordId }) => firstExcerpts.get(recordId)!) ?? [] })),
 };
@@ -43,13 +51,37 @@ describe("demo analysis request and provider contract", () => {
     expect(await response.json()).toMatchObject({
       result: { threads: [{
         evidenceRecordIds: fixture.threads[0].evidenceRecordIds,
-        connection: { evidence: expect.arrayContaining([{ recordId: 101, quote: "교실 창가와 복도의 온도를 5일간 같은 시각에 재었다." }]) },
+        connection: {
+          evidence: expect.arrayContaining([{ recordId: 101, quote: "교실 창가와 복도의 온도를 5일간 같은 시각에 재었다." }]),
+          experiment: fixture.threads[0].connection!.experiment,
+        },
       }] },
     });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/models\/gemini-3\.5-flash-lite:generateContent$/),
       expect.objectContaining({ headers: expect.objectContaining({ "x-goog-api-key": fakeKey }), body: expect.stringContaining("responseJsonSchema") }),
     );
+  });
+
+  it("uses the Sites fallback key only when the existing key is missing or blank", async () => {
+    const fetchMock = vi.fn(async () => geminiResult(wireFixture));
+    vi.stubGlobal("fetch", fetchMock);
+    const authenticated = () => {
+      const input = request(snapshot);
+      input.headers.set("oai-authenticated-user-id", "test-owner");
+      return input;
+    };
+    const fallback = "unit-test-fallback";
+    expect((await worker.fetch(authenticated(), { GEMINI_API_KEY: fakeKey, GEMINI_API_KEY_FALLBACK: fallback })).status).toBe(200);
+    expect((await worker.fetch(authenticated(), { GEMINI_API_KEY: "  ", GEMINI_API_KEY_FALLBACK: fallback })).status).toBe(200);
+    expect((await worker.fetch(authenticated(), {})).status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, expect.any(String), expect.objectContaining({
+      headers: expect.objectContaining({ "x-goog-api-key": fakeKey }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, expect.any(String), expect.objectContaining({
+      headers: expect.objectContaining({ "x-goog-api-key": fallback }),
+    }));
   });
 
   it("reports unconfigured, cross-origin, and empty inputs without calling the provider", async () => {
@@ -124,6 +156,7 @@ describe("demo analysis request and provider contract", () => {
       .flatMap(({ records }) => records).find(({ id }) => id === 101)!.excerpts;
     const validThread = responseFixture.threads[0];
     validThread.connection.evidence.splice(1, 0, second.id);
+    validThread.connection.experiment.excerptId = second.id;
     const unsupportedThread = structuredClone(validThread);
     unsupportedThread.title = "한 기록만 인용한 연결";
     unsupportedThread.connection.evidence = [first.id, second.id];
@@ -137,20 +170,36 @@ describe("demo analysis request and provider contract", () => {
     const { result } = await response.json();
     expect(result.threads.map(({ title }: { title: string }) => title)).toEqual([validThread.title]);
     expect(result.threads[0].evidenceRecordIds).toEqual([101, 102, 103]);
-    expect(result.threads[0].connection.evidence[0]).toEqual({ recordId: 101, quote: first.text });
+    expect(result.threads[0].connection.evidence[0]).toEqual({ recordId: 101, quote: second.text });
+    expect(result.threads[0].connection.experiment.recordId).toBe(101);
     expect(result.perspectives.find(({ aspect }: { aspect: string }) => aspect === "inquiry")).toMatchObject({
       grade: 3, evidenceRecordIds: [101, 102],
     });
   });
 
-  it("asks Gemini to repair missing completion criteria and rejects a repeated vague answer", async () => {
-    const vague = structuredClone(wireFixture);
-    vague.threads[0].connection.experiment!.done = "짧은 글을 써요.";
-    const fetchMock = vi.fn(async () => geminiResult(vague));
+  it("keeps the grounded analysis when a proposal cites an excerpt outside its connection or lacks a completion criterion", async () => {
+    const mismatched = structuredClone(wireFixture.threads[0]);
+    const second = indexedSubjects(snapshot).flatMap(({ records }) => records)
+      .find(({ id }) => id === 101)!.excerpts[1];
+    mismatched.connection.experiment.excerptId = second.id;
+    const vague = structuredClone(wireFixture.threads[0]);
+    vague.connection.experiment.done = "짧은 글을 써요.";
+    const fetchMock = vi.fn(async () => geminiResult({
+      ...wireFixture,
+      threads: [...wireFixture.threads, mismatched, vague],
+    }));
     vi.stubGlobal("fetch", fetchMock);
     const response = await handleDemoAnalysis(request(snapshot), fakeKey);
-    expect(response.status).toBe(422);
-    expect(await response.json()).toMatchObject({ stage: "schema", message: expect.stringContaining("완료 기준") });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      result: {
+        threads: [fixture.threads[0].connection!.experiment, null, null].map((experiment) => ({
+          evidenceRecordIds: fixture.threads[0].evidenceRecordIds,
+          connection: { experiment },
+        })),
+        perspectives: expect.arrayContaining([expect.objectContaining({ aspect: "inquiry" })]),
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

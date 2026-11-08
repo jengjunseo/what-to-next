@@ -4,7 +4,7 @@ import { AnalysisResultSchema, EvidenceResultSchema, validateEvidenceIds, type A
 export type AnalysisStage = "input" | "configuration" | "provider" | "schema" | "evidence";
 
 export class AnalysisFailure extends Error {
-  constructor(public stage: AnalysisStage, message: string, public status: number, public repair?: string) {
+  constructor(public stage: AnalysisStage, message: string, public status: number) {
     super(message);
   }
 }
@@ -23,30 +23,28 @@ function analysisFromProvider(value: unknown, snapshot: AnalysisSnapshot): Analy
     return excerpt;
   }
 
-  function distinctRecords(ids: number[]) {
+  function distinctRecords(ids: number[], preferredId?: number) {
     const byRecord = new Map<number, ReturnType<typeof resolveExcerpt>>();
     for (const id of ids) {
       const excerpt = resolveExcerpt(id);
-      if (!byRecord.has(excerpt.recordId)) byRecord.set(excerpt.recordId, excerpt);
+      if (!byRecord.has(excerpt.recordId) || id === preferredId) byRecord.set(excerpt.recordId, excerpt);
     }
     return [...byRecord.values()];
   }
 
-  const threads = data.threads.map((thread) => ({
-    ...thread,
-    citations: distinctRecords(thread.connection.evidence),
-  })).filter(({ citations }) => citations.length >= 2);
-
-  for (const { connection: { experiment }, citations } of threads) {
-    if (!experiment) continue;
-    if (!citations.some((item) => item.recordId === experiment.recordId)) {
-      throw new AnalysisFailure("evidence", "제안의 인용이 연결의 원문 근거에 포함되어야 해요.", 422);
+  const threads = data.threads.map(({ connection, ...thread }) => {
+    const { experiment, evidence, ...details } = connection;
+    const usable = experiment && evidence.includes(experiment.excerptId)
+      && /\d/.test(experiment.scope) && /\d/.test(experiment.done)
+      && ![experiment.gap, experiment.action, experiment.done].some((part) => vaguePhrases.test(part));
+    const citations = distinctRecords(evidence, usable ? experiment.excerptId : undefined);
+    let groundedExperiment = null;
+    if (usable) {
+      const { excerptId, ...proposal } = experiment;
+      groundedExperiment = { ...proposal, recordId: resolveExcerpt(excerptId).recordId };
     }
-    if (!/\d/.test(experiment.scope) || !/\d/.test(experiment.done)
-      || [experiment.gap, experiment.action, experiment.done].some((part) => vaguePhrases.test(part))) {
-      throw new AnalysisFailure("schema", "실험 분량과 완료 기준이 빠졌거나 제안이 너무 막연해요. 다시 분석해 주세요.", 422, "실험 scope와 done에 아라비아 숫자, 실제 비교 대상, 남길 측정값을 넣어요. 금지 수식어는 빼 주세요.");
-    }
-  }
+    return { ...thread, connection: { ...details, experiment: groundedExperiment }, citations };
+  }).filter(({ citations }) => citations.length >= 2);
 
   let rank = 0;
   return {
