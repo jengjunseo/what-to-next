@@ -1,6 +1,6 @@
 import { AnalysisFailure, failureDetails, verifyAnalysis, type AnalysisStage } from "@/lib/ai/analysis-response";
 import type { AnalysisResult, ThreadStatus } from "@/lib/domain/analysis";
-import { demoSnapshot, fixedResponse, type DemoRecord, type ScenarioId } from "./scenarios";
+import { demoSnapshot, fixedResponse, type DemoRecord, type WorkspaceId } from "./scenarios";
 
 export type Mode = "fixed" | "gemini" | "bad-schema" | "bad-id" | "provider-error";
 type RunBase = {
@@ -10,7 +10,7 @@ type RunBase = {
   mode: Mode;
   durationMs: number;
   httpStatus: number | null;
-  scenario: ScenarioId;
+  scenario: WorkspaceId;
 };
 export type Success = RunBase & {
   ok: true;
@@ -34,7 +34,7 @@ export async function snapshotHash(records: DemoRecord[]) {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export async function runDemo(scenario: ScenarioId, records: DemoRecord[], mode: Mode): Promise<Run> {
+export async function runDemo(scenario: WorkspaceId, records: DemoRecord[], mode: Mode): Promise<Run> {
   const started = performance.now();
   const id = crypto.randomUUID();
   const time = new Date().toISOString();
@@ -65,7 +65,7 @@ export async function runDemo(scenario: ScenarioId, records: DemoRecord[], mode:
     } else {
       const fixture = fixedResponse(scenario, records);
       if (mode === "provider-error") throw new AnalysisFailure("provider", "재현용 공급자 장애입니다. 다시 실행해 보세요.", 502);
-      if (mode === "bad-id") fixture.threads[0].evidenceRecordIds = [999999];
+      if (mode === "bad-id" && fixture.perspectives) fixture.perspectives[0].evidenceRecordIds = [999999];
       value = mode === "bad-schema" ? { threads: [] } : fixture;
     }
     return { ...details(), ok: true, result: verifyAnalysis(value, snapshot), records, overrides: {} };

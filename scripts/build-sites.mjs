@@ -10,6 +10,7 @@ const options = {
 const { outputFiles } = await build({
   ...options,
   entryPoints: ["sites/client.tsx"],
+  loader: { ".woff2": "dataurl" },
   outdir: "dist/client",
   write: false,
   platform: "browser",

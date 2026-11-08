@@ -9,6 +9,11 @@ describe("isolated demo runs", () => {
     const run = await runDemo(id, records, "fixed");
     expect(run).toMatchObject({ ok: true, mode: "fixed", httpStatus: null });
     if (!run.ok) throw new Error(run.message);
+    expect(run.result.perspectives).toHaveLength(6);
+    if (id === "weak" || id === "incomplete") {
+      expect(run.result.threads).toEqual([]);
+      return;
+    }
     expect(run.result.threads[0].status).toBe(SCENARIOS[id].status);
     expect(run.result.threads[0].evidenceRecordIds.every((id) => records.some((record) => record.id === id))).toBe(true);
   });

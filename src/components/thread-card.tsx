@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookMarked, ChevronRight, ShieldAlert } from "lucide-react";
+import { BookMarked, ShieldAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -42,11 +42,6 @@ export function ThreadCard({ thread, evidence, compact = false }: { thread: Thre
             </div>
           </>
         )}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <Score label="강도" value={thread.strengthScore} />
-          <Score label="연속성" value={thread.continuityScore} />
-          <Score label="깊이" value={thread.academicDepthScore} />
-        </div>
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
           <p className="text-[11px] font-semibold tracking-wider text-primary uppercase">Next step</p>
           <p className="mt-1 text-sm leading-6">{thread.recommendedNextStep}</p>
@@ -55,13 +50,8 @@ export function ThreadCard({ thread, evidence, compact = false }: { thread: Thre
       {!compact && (
         <CardFooter className="flex items-center justify-between border-t pt-4 text-xs text-muted-foreground">
           <span>{thread.userStatus ? `AI: ${STATUS_META[thread.aiStatus].label} · 내 판단 적용` : "AI 판단 적용 중"}</span>
-          <span className="flex items-center gap-1">억지 연결 위험 {thread.forcedConnectionRisk}<ChevronRight className="size-3" /></span>
         </CardFooter>
       )}
     </Card>
   );
-}
-
-function Score({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-md bg-muted/40 px-2 py-2"><p className="font-mono text-base font-semibold">{value}</p><p className="text-[10px] text-muted-foreground">{label}</p></div>;
 }

@@ -1,4 +1,4 @@
-import { normalizeAnalysisInput, type AnalysisResult, type ThreadStatus } from "@/lib/domain/analysis";
+import { normalizeAnalysisInput, PERSPECTIVES, type AnalysisResult, type ThreadStatus } from "@/lib/domain/analysis";
 
 export type DemoRecord = {
   id: number;
@@ -77,6 +77,7 @@ export const SCENARIOS = {
 }>;
 
 export type ScenarioId = keyof typeof SCENARIOS;
+export type WorkspaceId = ScenarioId | "personal";
 export const SCENARIO_IDS = Object.keys(SCENARIOS) as ScenarioId[];
 
 export function demoSnapshot(records: DemoRecord[]) {
@@ -97,42 +98,57 @@ export function demoSnapshot(records: DemoRecord[]) {
   return normalizeAnalysisInput([...subjects.values()]);
 }
 
-export function fixedResponse(scenarioId: ScenarioId, records: DemoRecord[]): AnalysisResult {
-  const scenario = SCENARIOS[scenarioId];
-  const unchanged = JSON.stringify(demoSnapshot(records)) === JSON.stringify(demoSnapshot(scenario.records));
-  const selected = unchanged
-    ? records.filter((record) => scenarioId === "connected" ? record.id !== 104 : scenarioId === "repeated" || record.id === scenario.records[0].id)
-    : records.slice(0, 1);
-  const status = unchanged ? scenario.status : "RECOVER_LATER";
-  const title = unchanged ? scenario.thread : "수정한 기록의 검토";
-  const reasoning = unchanged ? scenario.reasoning : "수정한 입력의 첫 기록을 근거 보기 예시로 사용합니다. 연결 관계에 대한 판단은 실제 분석에서 확인할 수 있습니다.";
+export function fixedResponse(workspace: WorkspaceId, records: DemoRecord[]): AnalysisResult {
+  const scenario = workspace === "personal" ? null : SCENARIOS[workspace];
+  const unchanged = scenario != null
+    && JSON.stringify(demoSnapshot(records)) === JSON.stringify(demoSnapshot(scenario.records));
+  const linked = unchanged && (workspace === "connected" || workspace === "repeated");
+  const evidence = linked ? records.filter((record) => record.id !== 104) : [];
+  const title = unchanged ? scenario.thread : "입력한 기록을 먼저 살펴봐요";
   const next = unchanged ? scenario.next : "기록에서 확인할 수 있는 질문, 활동 방법과 결과를 각각 한 문장으로 적어 보세요.";
+  const uncertainty = "기록만으로 판단하기 어려워요. 직접 맡은 일이나 이전 활동에서 달라진 점을 확인해 보세요.";
   return {
     overall: {
-      currentProfile: unchanged ? scenario.title : "편집한 가상 기록",
+      currentProfile: unchanged ? scenario.title : "입력한 기록을 살펴봐요",
       strongestDirection: title,
-      biggestProblem: unchanged ? scenario.description : "편집 이후의 근거와 연결을 다시 확인해야 합니다.",
+      biggestProblem: linked ? scenario.description : "지금 기록만으로 이어지는 흐름을 확인하기 어려워요.",
       strategySummary: next,
     },
-    threads: [{
-      title, status, reasoning,
-      description: unchanged ? scenario.description : "편집한 입력의 원문을 여는 테스트용 예시",
-      evidenceRecordIds: selected.map((record) => record.id),
-      relatedSubjects: [...new Set(selected.map((record) => record.subject))],
-      strengthScore: unchanged && scenarioId === "connected" ? 86 : 35,
-      continuityScore: unchanged && scenarioId === "connected" ? 80 : 25,
-      growthScore: unchanged && scenarioId === "connected" ? 82 : 25,
-      majorFitScore: 40,
-      academicDepthScore: 55,
-      forcedConnectionRisk: unchanged && scenarioId === "connected" ? 18 : 65,
+    threads: linked ? [{
+      title, status: scenario.status, reasoning: scenario.reasoning,
+      description: scenario.description,
+      evidenceRecordIds: evidence.map(({ id }) => id),
+      relatedSubjects: [...new Set(evidence.map(({ subject }) => subject))],
       recommendedNextStep: next,
-      avoid: "기록으로 확인하기 어려운 성과를 추정하지 않기",
-      targetSemester: status === "EXTEND_NOW" ? "2-2" : "3-1",
-      priorityRank: status === "EXTEND_NOW" ? 1 : null,
-    }],
+      avoid: "기록에 없는 성과는 추정하지 않아요.",
+      targetSemester: scenario.status === "EXTEND_NOW" ? "2-2" : "NONE",
+      priorityRank: scenario.status === "EXTEND_NOW" ? 1 : null,
+      connection: {
+        type: workspace === "repeated" ? "주제 반복" : "방법 개선",
+        strength: workspace === "repeated" ? "낮음" : "높음",
+        evidence: evidence.map(({ id, text }) => ({ recordId: id, summary: text })),
+        alternative: workspace === "repeated"
+          ? "공통 키워드는 있지만, 나중 활동이 앞선 질문에서 출발했는지 알기 어려워요."
+          : "활동 순서가 이어져 보여요. 앞선 결과를 보고 실험을 바꿨는지는 확인해 보세요.",
+        question: "이전 기록을 떠올렸을 때, 다음 활동에서 직접 바꾼 건 무엇인가요?",
+        options: [{ action: next, output: "비교 조건과 결과를 적은 표 한 장이에요." }],
+      },
+    }] : [],
     semesterStrategy: {
       secondYearSecondSemester: next,
       thirdYearFirstSemester: "결과와 한계를 원래 기록과 비교하고 다음 질문을 정리해 보세요.",
     },
+    perspectives: (Object.keys(PERSPECTIVES) as (keyof typeof PERSPECTIVES)[]).map((aspect) => {
+      if (linked && aspect === "inquiry") {
+        return {
+          aspect,
+          grade: workspace === "connected" ? 3 : 1,
+          evidenceRecordIds: evidence.map(({ id }) => id),
+          summary: scenario.reasoning,
+          uncertainty: "학생이 각 활동에서 어떤 결정을 직접 했는지는 더 확인해 보세요.",
+        };
+      }
+      return { aspect, grade: 0, evidenceRecordIds: [], summary: "기록만으로 판단하기 어려워요.", uncertainty };
+    }),
   };
 }

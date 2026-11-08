@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { ArrowUpRight, BookOpen, FlaskConical, GitBranch, History, Route } from "lucide-react";
+import { useState, useSyncExternalStore } from "react";
+import { ArrowUpRight, FlaskConical, GitBranch, History, Info, Network, Sparkles } from "lucide-react";
 import { MODE_LABELS, runDemo, type Mode, type Run, type Success } from "@/lib/demo/runs";
-import { demoSnapshot, SCENARIO_IDS, SCENARIOS, type DemoRecord, type ScenarioId } from "@/lib/demo/scenarios";
+import { demoSnapshot, SCENARIO_IDS, SCENARIOS, type DemoRecord, type WorkspaceId } from "@/lib/demo/scenarios";
 import { RecordsPanel } from "./records-panel";
 import { ResultPanel } from "./result-panel";
 import { Diagnostics, Evaluation, HistoryPanel, TestResults, type Review, type TestReport } from "./review-panels";
@@ -16,50 +16,65 @@ type Props = {
   homeLink?: string;
   reports?: TestReport[];
 };
-type Workspace = { scenario: ScenarioId; records: DemoRecord[]; runs: Run[]; reviews: Review[]; nextId: number };
+type Workspace = {
+  scenario: WorkspaceId;
+  records: DemoRecord[];
+  runs: Run[];
+  reviews: Review[];
+  nextId: number;
+  drafts?: Partial<Record<WorkspaceId, DemoRecord[]>>;
+};
 type View = "records" | "results" | "history" | "review";
 const NAV = [
-  { id: "records", label: "기록", icon: BookOpen },
-  { id: "results", label: "연결 지도", icon: GitBranch },
-  { id: "history", label: "분석 이력", icon: History },
+  { id: "results", label: "탐구 흐름 지도" },
+  { id: "history", label: "분석 이력" },
+  { id: "records", label: "기록 입력" },
 ] as const;
 const subscribe = () => () => {};
+const seedRecords = (id: WorkspaceId) => id === "personal" ? [] : SCENARIOS[id].records;
 
-function initialWorkspace(key: string): Workspace {
+function initialWorkspace(key: string, review: boolean): Workspace {
   try {
     const saved = JSON.parse(localStorage.getItem(key) ?? "null") as Workspace | null;
-    if (saved && SCENARIO_IDS.includes(saved.scenario) && Array.isArray(saved.records)
-      && Array.isArray(saved.runs) && Array.isArray(saved.reviews) && Number.isInteger(saved.nextId)) return saved;
+    if (saved && (saved.scenario === "personal" || SCENARIO_IDS.includes(saved.scenario)) && Array.isArray(saved.records)
+      && Array.isArray(saved.runs) && Array.isArray(saved.reviews) && Number.isInteger(saved.nextId)) {
+      if (!review && saved.scenario !== "personal" && !saved.drafts) {
+        return { ...saved, scenario: "personal", records: [], drafts: { [saved.scenario]: saved.records } };
+      }
+      return saved;
+    }
   } catch {
-    // A fresh workspace remains usable when storage is unavailable.
+    // The workspace remains usable when storage is unavailable.
   }
-  return { scenario: "connected", records: SCENARIOS.connected.records, runs: [], reviews: [], nextId: 1000 };
+  const scenario = review ? "connected" : "personal";
+  return { scenario, records: seedRecords(scenario), runs: [], reviews: [], nextId: 1000 };
 }
 
 export function DemoWorkbench(props: Props) {
   const ready = useSyncExternalStore(subscribe, () => true, () => false);
-  return ready ? <WorkspaceView {...props} /> : <main className="wtn wtn-loading">What to Next · 작업 공간을 여는 중…</main>;
+  return ready ? <WorkspaceView {...props} /> : <main className="wtn wtn-loading">작업 공간을 열고 있어요.</main>;
 }
 
 function WorkspaceView({ review = false, live, reviewLink, homeLink, reports = [] }: Props) {
   const key = review ? "wtn-studio-v1" : "wtn-demo-v1";
-  const [data, setData] = useState(() => initialWorkspace(key));
+  const [data, setData] = useState(() => initialWorkspace(key, review));
   const [view, setView] = useState<View>(review ? "review" : "records");
   const [busy, setBusy] = useState(false);
   const [selectedId, setSelectedId] = useState("");
-  const [mode, setMode] = useState<Mode>("fixed");
+  const [mode, setMode] = useState<Mode>(live && data.scenario === "personal" ? "gemini" : "fixed");
+  const [showSettings, setShowSettings] = useState(false);
+  const [consent, setConsent] = useState(false);
   const [notice, setNotice] = useState("");
   const [storageError, setStorageError] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetCount, setResetCount] = useState(0);
 
+  const personal = data.scenario === "personal";
   const runs = data.runs.filter((run) => run.scenario === data.scenario);
-  const successes = runs.filter((run): run is Success => run.ok);
-  const latest = successes[0];
+  const latest = runs.find((run): run is Success => run.ok);
   const selected = runs.find((run) => run.id === selectedId) ?? (view === "review" ? runs[0] : latest);
   const result = selected?.ok ? selected : latest;
   const stale = result != null && JSON.stringify(demoSnapshot(data.records)) !== JSON.stringify(demoSnapshot(result.records));
-  const scenario = SCENARIOS[data.scenario];
 
   function update(next: Workspace) {
     setData(next);
@@ -71,20 +86,28 @@ function WorkspaceView({ review = false, live, reviewLink, homeLink, reports = [
     }
   }
 
-  function switchScenario(id: ScenarioId) {
+  function switchScenario(id: WorkspaceId) {
     if (id === data.scenario) return;
+    setMode(live && id === "personal" ? "gemini" : "fixed");
     setSelectedId("");
-    setNotice("시나리오의 가상 기록을 불러왔습니다.");
+    setConsent(false);
+    setNotice(id === "personal" ? "내 기록을 열었어요." : "예시 기록을 불러왔어요.");
     setConfirmReset(false);
-    update({ ...data, scenario: id, records: SCENARIOS[id].records });
+    update({
+      ...data,
+      scenario: id,
+      records: data.drafts?.[id] ?? seedRecords(id),
+      drafts: { ...data.drafts, [data.scenario]: data.records },
+    });
   }
 
   async function analyze() {
-    if (busy) return;
+    if (busy || (personal && mode === "gemini" && !consent)) return;
     setBusy(true);
     setNotice("");
     try {
       const run = await runDemo(data.scenario, data.records, mode);
+      setShowSettings(false);
       const runs = [run, ...data.runs].slice(0, 24);
       update({ ...data, runs, reviews: data.reviews.filter((evaluation) => runs.some((item) => item.id === evaluation.runId)) });
       setSelectedId(run.id);
@@ -95,122 +118,152 @@ function WorkspaceView({ review = false, live, reviewLink, homeLink, reports = [
   }
 
   function saveRecord(record: Omit<DemoRecord, "id">, id?: number) {
+    setConsent(false);
     if (id != null) {
       update({ ...data, records: data.records.map((item) => item.id === id ? { ...record, id } : item) });
     } else {
       update({ ...data, nextId: data.nextId + 1, records: [...data.records, { ...record, id: data.nextId }] });
     }
-    setNotice(id == null ? "기록을 추가했습니다." : "기록을 수정했습니다.");
+    setNotice(id == null ? "좋아요. 기록을 저장했어요." : "바꾼 내용을 저장했어요.");
   }
 
-  function selectRun(run: Run) {
-    setSelectedId(run.id);
-    setView(review ? "review" : "results");
+  function changeView(next: View) {
+    setSelectedId("");
+    setView(next);
+    window.scrollTo({ top: 0 });
   }
 
+  function resetRecords(restore: boolean) {
+    update({ ...data, records: restore ? seedRecords(data.scenario) : [] });
+    setConfirmReset(false);
+    setConsent(false);
+    setResetCount(resetCount + 1);
+    setNotice(restore ? "처음 예시 기록으로 돌아왔어요." : "현재 기록을 비웠어요.");
+  }
+
+  const hasResult = view === "results" && !!result && selected?.ok !== false;
   const modes: Mode[] = ["fixed", ...(live ? ["gemini" as const] : []), ...(review ? ["bad-schema", "bad-id", "provider-error"] as const : [])];
-  const nav = review ? [{ id: "review", label: "실행 및 평가", icon: FlaskConical }, ...NAV] as const : NAV;
-  const tabs: Record<View, ReactNode> = {
-    records: <RecordsPanel key={data.scenario + "-" + resetCount} records={data.records} locked={busy} save={saveRecord} remove={(id) => {
-      update({ ...data, records: data.records.filter((record) => record.id !== id) });
-      setNotice("기록을 삭제했습니다.");
-    }} />,
-    results: result ? (
-      <ResultPanel key={result.id} run={result} stale={stale} override={(index, status) => {
-        update({
-          ...data,
-          runs: data.runs.map((run) => run.id === result.id && run.ok
-            ? { ...run, overrides: { ...run.overrides, [index]: status } } : run),
-        });
-      }} locked={busy} />
-    ) : <div className="wtn-empty"><GitBranch size={24} /><h2>아직 연결 지도가 없습니다</h2><p>기록을 확인한 뒤 분석을 실행해 보세요.</p></div>,
-    history: <HistoryPanel runs={runs} select={selectRun} />,
-    review: <>
-      <Diagnostics run={selected} stale={selected?.ok ? stale : undefined} />
-      {selected?.ok && <>
-        <ResultPanel key={selected.id} run={selected} stale={stale} />
-        <Evaluation key={selected.id + "-evaluation"} run={selected} reviews={data.reviews} locked={busy}
-          save={(evaluation) => {
-            update({ ...data, reviews: [evaluation, ...data.reviews].slice(0, 80) });
-            setNotice("검수 평가를 저장했습니다.");
-          }} />
-      </>}
-      <TestResults reports={reports} />
-    </>,
-  };
+  const nav = review ? [{ id: "review", label: "실행 및 평가" }, ...NAV] as const : NAV;
+  const heading = review ? "Review Studio" : view === "records" ? "어떤 과목을 들었나요?"
+    : view === "history" ? "이전 분석과 비교해 봐요" : "기록이 어떻게 이어지는지 봐요";
+  const subheading = review ? "같은 가상 기록으로 여러 번 분석하고 원문과 결과를 비교해 봐요."
+    : view === "records" ? "과목을 고르고, 학교생활기록부에 적힌 내용을 직접 입력해 주세요."
+    : view === "history" ? "기록을 바꾸기 전과 후의 탐구 방향을 비교할 수 있어요."
+    : "과목마다 흩어져 있던 질문을 모아 보고, 다음에 해볼 일을 골라요.";
 
   return (
     <div className="wtn">
-      <aside className="wtn-sidebar">
-        <a className="wtn-brand" href={review ? (homeLink ?? "/demo") : "#main-content"}>
-          <span className="wtn-brand-icon"><Route size={22} aria-hidden /></span>
-          <span>What to Next<small>학생 탐구 작업 공간</small></span>
-        </a>
-        <nav aria-label="작업 공간 메뉴">
-          {nav.map(({ id, label, icon: Icon }) =>
-            <button key={id} type="button" aria-current={view === id ? "page" : undefined}
-              onClick={() => { setSelectedId(""); setView(id); }}>
-              <Icon size={17} aria-hidden />{label}
-            </button>)}
-        </nav>
-        <div className="wtn-side-bottom">
-          {reviewLink && <a href={reviewLink}><FlaskConical size={16} aria-hidden />Review Studio <ArrowUpRight size={14} aria-hidden /></a>}
-          {homeLink && <a href={homeLink}>{review ? "학생용 화면" : "개인 기록 로그인"} <ArrowUpRight size={14} aria-hidden /></a>}
-          <span>{review ? "로컬 개발 전용" : "가상 데이터 작업 공간"}</span>
+      <a className="wtn-skip" href="#main-content">본문으로 이동</a>
+      <header className="wtn-topbar">
+        <div className="wtn-topbar-inner">
+          <button className="wtn-brand" type="button" onClick={() => changeView(review ? "review" : "records")}>
+            <span className="wtn-brand-icon"><Network size={22} aria-hidden /></span>
+            <span>What to Next<small>학생부 탐구 로드맵</small></span>
+          </button>
+          <nav aria-label="작업 공간 메뉴">
+            {nav.map(({ id, label }) =>
+              <button key={id} type="button" aria-current={view === id ? "page" : undefined} onClick={() => changeView(id)}>
+                {label}
+              </button>)}
+          </nav>
+          <div className="wtn-top-actions">
+            {reviewLink && <a href={reviewLink}><FlaskConical size={15} aria-hidden />Review Studio</a>}
+            {homeLink && <a href={homeLink}>{review ? "학생용 화면" : "개인 기록 로그인"}<ArrowUpRight size={14} aria-hidden /></a>}
+            {!homeLink && <span className="wtn-tag"><span className="wtn-dot" />비공개 작업 공간</span>}
+          </div>
         </div>
-      </aside>
+      </header>
 
       <main id="main-content" className="wtn-main">
-        <header className="wtn-hero">
+        <header key={"hero-" + view} className="wtn-hero wtn-reveal">
           <div>
-            <p className="wtn-eyebrow">{review ? "개발 · 인간 검수" : "학교생활 · 다음 탐구"}</p>
-            <h1>{review ? "Review Studio" : "다음 탐구를 찾아보세요"}</h1>
-            <p>{review ? "가상 기록으로 분석을 실행하고, 원문을 대조하며 판단의 품질을 평가합니다."
-              : "흩어진 과목 기록에서 연결고리를 발견하고, 원문을 바탕으로 다음 활동을 결정하세요."}</p>
+            <p className="wtn-eyebrow">{review ? "개발 · 인간 검수" : "학생부 탐구 로드맵"}</p>
+            <h1>{heading}</h1>
+            <p>{subheading}</p>
           </div>
-          <span className="wtn-tag">{review ? "개발 전용" : "가상 데이터"}</span>
+          {hasResult ? <div className="wtn-hero-actions">
+            <span className="wtn-tag">{MODE_LABELS[result.mode]}</span>
+            <button type="button" className="wtn-soft-button" onClick={() => changeView("history")}><History size={15} aria-hidden />지난 분석 비교</button>
+            <button type="button" className="wtn-primary" aria-expanded={showSettings} onClick={() => setShowSettings(!showSettings)}>
+              <Sparkles size={15} aria-hidden />분석 설정
+            </button>
+          </div> : <span className="wtn-tag">{review ? "개발 전용" : personal ? "내 기록" : "예시 기록"}</span>}
         </header>
 
-        <section className="wtn-controls" aria-label="시나리오와 분석 설정">
+        {(!hasResult || showSettings) && <section className="wtn-controls wtn-reveal" style={{ animationDelay: "60ms" }} aria-label="기록과 분석 설정">
           <div>
-            <label htmlFor="wtn-scenario">가상 시나리오</label>
-            <select id="wtn-scenario" disabled={busy} value={data.scenario} onChange={(event) => switchScenario(event.target.value as ScenarioId)}>
-              {SCENARIO_IDS.map((id) => <option key={id} value={id}>{SCENARIOS[id].title}</option>)}
+            <label htmlFor="wtn-scenario">{review ? "가상 시나리오" : "기록 작업 공간"}</label>
+            <select id="wtn-scenario" disabled={busy} value={data.scenario} onChange={(event) => switchScenario(event.target.value as WorkspaceId)}>
+              {!review && <option value="personal">내 기록 입력</option>}
+              {SCENARIO_IDS.map((id) => <option key={id} value={id}>{review ? "" : "예시 · "}{SCENARIOS[id].title}</option>)}
             </select>
-            <p>{scenario.description}</p>
+            <p>{data.scenario === "personal" ? "과목과 학기를 골라 기록을 모아 봐요." : SCENARIOS[data.scenario].description}</p>
           </div>
           <div>
             <label htmlFor="wtn-mode">분석 방식</label>
-            <select id="wtn-mode" disabled={busy} value={mode} onChange={(event) => setMode(event.target.value as Mode)}>
+            <select id="wtn-mode" disabled={busy} value={mode} onChange={(event) => { setMode(event.target.value as Mode); setConsent(false); }}>
               {modes.map((item) => <option value={item} key={item}>{MODE_LABELS[item]}</option>)}
             </select>
-            <p>{mode === "gemini" ? "가상 기록을 Google Gemini에 전송합니다." : "테스트 실행은 API를 호출하지 않습니다."}</p>
+            <p>{mode === "gemini" ? "입력한 내용을 Google Gemini로 보내 분석해요." : "고정 응답으로 화면 흐름을 체험할 수 있어요."}</p>
           </div>
           <div className="wtn-run-controls">
-            <button type="button" className="wtn-primary" onClick={() => void analyze()} disabled={busy}>
-              {busy ? "분석 중…" : "분석 실행"} <ArrowUpRight size={16} aria-hidden />
+            <button type="button" className="wtn-primary" onClick={() => void analyze()} disabled={busy || (personal && (data.records.length === 0 || (mode === "gemini" && !consent)))}>
+              <Sparkles size={16} aria-hidden />{busy ? "기록을 읽고 있어요…" : "분석 실행"}
             </button>
-            <button type="button" className="wtn-text-button" disabled={busy} onClick={() => setConfirmReset(!confirmReset)}>기록 초기화·복구</button>
+            {(!personal || data.records.length > 0) && <button type="button" className="wtn-text-button" disabled={busy} onClick={() => setConfirmReset(!confirmReset)}>기록 초기화·복구</button>}
           </div>
+          {personal && data.records.length > 0 && mode === "gemini" && <label className="wtn-consent">
+            <input type="checkbox" disabled={busy} checked={consent} onChange={(event) => setConsent(event.target.checked)} />
+            이름과 학교 등 개인정보를 뺐고, 입력 내용을 Gemini로 보내는 데 동의해요.
+          </label>}
           {confirmReset && <div className="wtn-reset">
-            <span>현재 가상 기록만 바뀝니다. 분석 이력과 검수 메모는 유지됩니다.</span>
-            <button type="button" disabled={busy} onClick={() => {
-              update({ ...data, records: scenario.records }); setConfirmReset(false); setResetCount(resetCount + 1); setNotice("기본 가상 기록을 복구했습니다.");
-            }}>기본 기록 복구</button>
-            <button type="button" disabled={busy} onClick={() => {
-              update({ ...data, records: [] }); setConfirmReset(false); setResetCount(resetCount + 1); setNotice("가상 기록을 비웠습니다.");
-            }}>가상 기록 비우기</button>
+            <span>현재 작업 공간의 기록만 바뀌어요. 분석 이력과 검수 메모는 남아요.</span>
+            {!personal && <button type="button" disabled={busy} onClick={() => resetRecords(true)}>기본 기록 복구</button>}
+            <button type="button" disabled={busy} onClick={() => resetRecords(false)}>{personal ? "내 기록 비우기" : "가상 기록 비우기"}</button>
             <button type="button" onClick={() => setConfirmReset(false)}>취소</button>
           </div>}
-        </section>
-        <div className="wtn-feedback" aria-live="polite">
-          {busy ? "분석 요청을 처리하고 있습니다." : storageError ? "브라우저 저장 공간을 사용할 수 없습니다. 새로고침하면 변경이 사라질 수 있습니다." : notice}
+        </section>}
+        <div className={hasResult && !showSettings && !busy && !notice && !storageError ? "wtn-sr-only" : "wtn-feedback"} aria-live="polite">
+          {busy ? "기록을 읽고 연결할 단서를 찾고 있어요." : storageError ? "이 브라우저에 저장하기 어려워요. 새로고침하면 변경 내용이 사라질 수 있어요." : notice}
         </div>
 
-        {view === "results" && selected?.ok === false &&
-          <p className="wtn-warning" role="alert">{MODE_LABELS[selected.mode]} 실패 · {selected.message}{result ? " 이전 성공 결과를 표시합니다." : ""}</p>}
-        {tabs[view]}
-        <footer className="wtn-footer">가상 기록과 검수 내용은 이 브라우저에 저장됩니다. 실제 학생의 개인정보는 입력하지 마세요.</footer>
+        <div key={"content-" + view} className="wtn-content wtn-reveal" style={{ animationDelay: "115ms" }}>
+          {view === "records" && <RecordsPanel key={data.scenario + "-" + resetCount} records={data.records}
+            showFirstEditor={personal && data.records.length === 0} locked={busy} save={saveRecord} remove={(id) => {
+              setConsent(false);
+              update({ ...data, records: data.records.filter((record) => record.id !== id) });
+              setNotice("기록을 삭제했어요.");
+            }} />}
+          {view === "results" && <>
+            {selected?.ok === false && <p className="wtn-warning" role="alert">{MODE_LABELS[selected.mode]} 실패 · {selected.message}{result ? " 이전 분석을 보여드려요." : ""}</p>}
+            {result ? <ResultPanel key={result.id} run={result} stale={stale} compactHeader
+              override={(index, status) => update({
+                ...data, runs: data.runs.map((run) => run.id === result.id && run.ok ? { ...run, overrides: { ...run.overrides, [index]: status } } : run),
+              })} locked={busy} /> : <div className="wtn-empty"><GitBranch size={24} /><h2>아직 연결 지도가 없어요</h2><p>기록을 먼저 추가하고 분석을 실행해 보세요.</p>
+                <button type="button" onClick={() => changeView("records")}>기록 입력하기</button></div>}
+          </>}
+          {view === "history" && <HistoryPanel runs={runs} select={(run) => {
+            setSelectedId(run.id);
+            setView(review ? "review" : "results");
+            window.scrollTo({ top: 0 });
+          }} />}
+          {view === "review" && <>
+            <Diagnostics run={selected} stale={selected?.ok ? stale : undefined} />
+            {selected?.ok && <>
+              <ResultPanel key={selected.id} run={selected} stale={stale} />
+              <Evaluation key={selected.id + "-evaluation"} run={selected} reviews={data.reviews} locked={busy}
+                save={(evaluation) => {
+                  update({ ...data, reviews: [evaluation, ...data.reviews].slice(0, 80) });
+                  setNotice("검수 평가를 저장했어요.");
+                }} />
+            </>}
+            <TestResults reports={reports} />
+          </>}
+        </div>
+        <footer className="wtn-footer">
+          <span><Info size={14} aria-hidden />기록과 분석 이력은 이 브라우저에 저장돼요.</span>
+          <button type="button" className="wtn-text-button" onClick={() => changeView("history")}><History size={14} aria-hidden />지난 분석 보기</button>
+        </footer>
       </main>
     </div>
   );

@@ -58,7 +58,7 @@ describe("demo analysis request and provider contract", () => {
 
   it("reports invalid schema and nonexistent evidence without returning a result", async () => {
     const badId = structuredClone(fixture);
-    badId.threads[0].evidenceRecordIds = [999999];
+    badId.threads[0].evidenceRecordIds[0] = 999999;
     vi.stubGlobal("fetch", vi.fn()
       .mockImplementationOnce(() => geminiResult({ threads: [] }))
       .mockImplementationOnce(() => geminiResult(badId)));
@@ -78,5 +78,23 @@ describe("demo analysis request and provider contract", () => {
     expect(response.status).toBe(429);
     expect(await response.text()).not.toContain(fakeKey);
     expect((await handleDemoAnalysis(request(snapshot), fakeKey)).status).toBe(200);
+  });
+
+  it("accepts one record without a thread and rejects inconsistent rubric evidence", async () => {
+    const onlyOne = [records[0]];
+    const shortSnapshot = demoSnapshot(onlyOne);
+    const limited = fixedResponse("personal", onlyOne);
+    const invalid = structuredClone(fixture);
+    invalid.perspectives![0].grade = 3;
+    invalid.perspectives![0].evidenceRecordIds = [records[0].id];
+    vi.stubGlobal("fetch", vi.fn()
+      .mockImplementationOnce(() => geminiResult(limited))
+      .mockImplementationOnce(() => geminiResult(invalid)));
+    const accepted = await handleDemoAnalysis(request(shortSnapshot), fakeKey);
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ result: { threads: [], perspectives: limited.perspectives } });
+    const rejected = await handleDemoAnalysis(request(snapshot), fakeKey);
+    expect(rejected.status).toBe(422);
+    expect(await rejected.json()).toMatchObject({ stage: "evidence" });
   });
 });

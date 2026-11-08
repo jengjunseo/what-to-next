@@ -1,14 +1,14 @@
 import { z } from "zod";
-import { AnalysisResultSchema, type AnalysisSnapshot } from "@/lib/domain/analysis";
+import { EvidenceResultSchema, type AnalysisSnapshot } from "@/lib/domain/analysis";
 import { buildAnalysisPrompt, STRATEGY_SYSTEM_PROMPT } from "@/lib/ai/prompt";
 import { AnalysisFailure, verifyAnalysis } from "@/lib/ai/analysis-response";
 
 export const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 export async function generateAnalysis(snapshot: AnalysisSnapshot, apiKey: string | undefined) {
-  if (!apiKey) throw new AnalysisFailure("configuration", "서버에 Gemini 키가 설정되지 않았습니다.", 503);
+  if (!apiKey) throw new AnalysisFailure("configuration", "서버에 Gemini 키를 설정해 주세요.", 503);
 
-  const responseJsonSchema = z.toJSONSchema(AnalysisResultSchema);
+  const responseJsonSchema = z.toJSONSchema(EvidenceResultSchema);
   Reflect.deleteProperty(responseJsonSchema, "$schema");
 
   let response: Response;
@@ -24,12 +24,12 @@ export async function generateAnalysis(snapshot: AnalysisSnapshot, apiKey: strin
       }),
     });
   } catch {
-    throw new AnalysisFailure("provider", "Gemini에 연결하지 못했거나 응답 시간이 초과되었습니다.", 502);
+    throw new AnalysisFailure("provider", "Gemini에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.", 502);
   }
 
   if (!response.ok) {
     await response.body?.cancel();
-    throw new AnalysisFailure("provider", `Gemini 요청이 실패했습니다 (HTTP ${response.status}).`, response.status === 429 ? 429 : 502);
+    throw new AnalysisFailure("provider", `Gemini 요청을 마치지 못했어요 (HTTP ${response.status}).`, response.status === 429 ? 429 : 502);
   }
 
   let value: unknown;
@@ -38,7 +38,7 @@ export async function generateAnalysis(snapshot: AnalysisSnapshot, apiKey: strin
     const output = body.candidates?.[0]?.content?.parts?.filter((part) => !part.thought).map((part) => part.text ?? "").join("");
     value = JSON.parse(output ?? "");
   } catch {
-    throw new AnalysisFailure("schema", "Gemini가 비어 있거나 유효하지 않은 JSON을 반환했습니다.", 422);
+    throw new AnalysisFailure("schema", "Gemini가 읽을 수 있는 결과를 보내지 않았어요.", 422);
   }
-  return verifyAnalysis(value, snapshot);
+  return verifyAnalysis(value, snapshot, true);
 }

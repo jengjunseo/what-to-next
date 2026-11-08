@@ -32,19 +32,20 @@ export async function runFullAnalysis() {
       })
       .returning({ id: analysisRuns.id, createdAt: analysisRuns.createdAt });
 
-    await tx.insert(threads).values(
+    if (result.threads.length > 0) await tx.insert(threads).values(
       result.threads.map((thread) => ({
         analysisRunId: run.id,
         title: thread.title,
         description: thread.description,
         aiStatus: thread.status,
         userStatus: null,
-        strengthScore: thread.strengthScore,
-        continuityScore: thread.continuityScore,
-        growthScore: thread.growthScore,
-        majorFitScore: thread.majorFitScore,
-        academicDepthScore: thread.academicDepthScore,
-        forcedConnectionRisk: thread.forcedConnectionRisk,
+        // The initial table requires legacy score columns. The rubric lives in rawResult.
+        strengthScore: thread.strengthScore ?? 0,
+        continuityScore: thread.continuityScore ?? 0,
+        growthScore: thread.growthScore ?? 0,
+        majorFitScore: thread.majorFitScore ?? 0,
+        academicDepthScore: thread.academicDepthScore ?? 0,
+        forcedConnectionRisk: thread.forcedConnectionRisk ?? 0,
         evidenceRecordIds: thread.evidenceRecordIds,
         reasoning: thread.reasoning,
         relatedSubjects: thread.relatedSubjects,

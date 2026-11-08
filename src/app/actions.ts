@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { records, subjects, threads } from "@/lib/db/schema";
 import { requireSession } from "@/lib/auth/session";
+import { isCurriculumCourse } from "@/lib/domain/courses";
 import { ThreadStatusSchema } from "@/lib/domain/analysis";
 
 const optionalText = z.string().trim().transform((value) => value || null);
@@ -28,6 +29,7 @@ function refreshAll() {
 export async function createSubject(formData: FormData) {
   await requireSession();
   const subject = subjectFormSchema.parse(Object.fromEntries(formData));
+  if (!isCurriculumCourse(subject.subjectName)) throw new Error("교육과정 목록에서 과목을 골라 주세요.");
   const recordText = String(formData.get("recordText") ?? "").trim();
   const memo = String(formData.get("memo") ?? "").trim() || null;
   const db = getDb();
