@@ -5,6 +5,13 @@ import { demoSnapshot, fixedResponse, SCENARIOS } from "./scenarios";
 const records = SCENARIOS.connected.records;
 const snapshot = demoSnapshot(records);
 const fixture = fixedResponse("connected", records);
+const wireFixture = {
+  ...fixture,
+  threads: fixture.threads.map(({ evidenceRecordIds: ids, ...thread }) => {
+    expect(thread.connection?.evidence.map(({ recordId }) => recordId)).toEqual(ids);
+    return thread;
+  }),
+};
 const origin = "http://localhost:3000";
 const fakeKey = "unit-test-credential";
 
@@ -23,7 +30,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("demo analysis request and provider contract", () => {
   it("sends a structured output request using the configured model and header, then validates it", async () => {
-    const fetchMock = vi.fn(async () => geminiResult(fixture));
+    const fetchMock = vi.fn(async () => geminiResult(wireFixture));
     vi.stubGlobal("fetch", fetchMock);
     const response = await handleDemoAnalysis(request(snapshot), fakeKey);
     expect(response.status).toBe(200);
@@ -57,8 +64,8 @@ describe("demo analysis request and provider contract", () => {
   });
 
   it("reports invalid schema and nonexistent evidence without returning a result", async () => {
-    const badId = structuredClone(fixture);
-    badId.threads[0].evidenceRecordIds[0] = 999999;
+    const badId = structuredClone(wireFixture);
+    badId.threads[0].connection!.evidence[0].recordId = 999999;
     vi.stubGlobal("fetch", vi.fn()
       .mockImplementationOnce(() => geminiResult({ threads: [] }))
       .mockImplementationOnce(() => geminiResult(badId)));
@@ -73,7 +80,7 @@ describe("demo analysis request and provider contract", () => {
   it("redacts provider response bodies and succeeds on retry", async () => {
     vi.stubGlobal("fetch", vi.fn()
       .mockResolvedValueOnce(Response.json({ error: fakeKey }, { status: 429 }))
-      .mockImplementationOnce(() => geminiResult(fixture)));
+      .mockImplementationOnce(() => geminiResult(wireFixture)));
     const response = await handleDemoAnalysis(request(snapshot), fakeKey);
     expect(response.status).toBe(429);
     expect(await response.text()).not.toContain(fakeKey);
@@ -84,7 +91,7 @@ describe("demo analysis request and provider contract", () => {
     const onlyOne = [records[0]];
     const shortSnapshot = demoSnapshot(onlyOne);
     const limited = fixedResponse("personal", onlyOne);
-    const invalid = structuredClone(fixture);
+    const invalid = structuredClone(wireFixture);
     invalid.perspectives![0].grade = 3;
     invalid.perspectives![0].evidenceRecordIds = [records[0].id];
     vi.stubGlobal("fetch", vi.fn()

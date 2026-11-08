@@ -72,8 +72,7 @@ export const AnalysisResultSchema = z.object({
 }).strict();
 
 export const EvidenceResultSchema = AnalysisResultSchema.extend({
-  threads: z.array(ThreadSchema.extend({
-    evidenceRecordIds: z.array(recordId).min(2),
+  threads: z.array(ThreadSchema.omit({ evidenceRecordIds: true }).extend({
     connection: ConnectionSchema,
   })),
   perspectives: z.array(PerspectiveSchema).length(6),

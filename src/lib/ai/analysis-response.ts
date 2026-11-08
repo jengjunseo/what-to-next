@@ -1,4 +1,4 @@
-import { AnalysisResultSchema, EvidenceResultSchema, validateEvidenceIds, type AnalysisSnapshot } from "@/lib/domain/analysis";
+import { AnalysisResultSchema, EvidenceResultSchema, validateEvidenceIds, type AnalysisResult, type AnalysisSnapshot } from "@/lib/domain/analysis";
 
 export type AnalysisStage = "input" | "configuration" | "provider" | "schema" | "evidence";
 
@@ -9,8 +9,16 @@ export class AnalysisFailure extends Error {
 }
 
 export function verifyAnalysis(value: unknown, snapshot: AnalysisSnapshot, requireEvidenceRubric = false) {
-  const schema = requireEvidenceRubric ? EvidenceResultSchema : AnalysisResultSchema;
-  const result = schema.safeParse(value);
+  const result = requireEvidenceRubric
+    ? EvidenceResultSchema.transform(({ threads, ...rest }): AnalysisResult => ({
+      ...rest,
+      threads: threads.map((thread) => ({
+        ...thread,
+        evidenceRecordIds: thread.connection.evidence.map(({ recordId }) => recordId),
+      })),
+    })).safeParse(value)
+    : AnalysisResultSchema.safeParse(value);
+
   if (!result.success) {
     const path = result.error.issues[0]?.path.join(".");
     throw new AnalysisFailure("schema", `응답 형식이 맞지 않아요${path ? ` (${path})` : ""}.`, 422);
