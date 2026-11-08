@@ -23,10 +23,19 @@ function analysisFromProvider(value: unknown, snapshot: AnalysisSnapshot): Analy
     return excerpt;
   }
 
+  function distinctRecords(ids: number[]) {
+    const byRecord = new Map<number, ReturnType<typeof resolveExcerpt>>();
+    for (const id of ids) {
+      const excerpt = resolveExcerpt(id);
+      if (!byRecord.has(excerpt.recordId)) byRecord.set(excerpt.recordId, excerpt);
+    }
+    return [...byRecord.values()];
+  }
+
   const threads = data.threads.map((thread) => ({
     ...thread,
-    citations: thread.connection.evidence.map(resolveExcerpt),
-  }));
+    citations: distinctRecords(thread.connection.evidence),
+  })).filter(({ citations }) => citations.length >= 2);
 
   for (const { connection: { experiment }, citations } of threads) {
     if (!experiment) continue;
@@ -42,8 +51,8 @@ function analysisFromProvider(value: unknown, snapshot: AnalysisSnapshot): Analy
   let rank = 0;
   return {
     overall: {
-      currentProfile: data.threads[0]?.title ?? "기록에서 확인할 점",
-      strongestDirection: data.threads[0]?.reasoning ?? data.focus,
+      currentProfile: threads[0]?.title ?? "기록에서 확인할 점",
+      strongestDirection: threads[0]?.reasoning ?? data.focus,
       biggestProblem: data.focus,
       strategySummary: data.focus,
     },
@@ -63,8 +72,35 @@ function analysisFromProvider(value: unknown, snapshot: AnalysisSnapshot): Analy
       thirdYearFirstSemester: data.focus,
     },
     perspectives: data.perspectives.map(({ evidence, ...perspective }) => {
-      const quotes = evidence.map(resolveExcerpt).map(({ recordId, quote }) => ({ recordId, quote }));
-      return { ...perspective, evidenceRecordIds: quotes.map(({ recordId }) => recordId), quotes };
+      const citedRecords = distinctRecords(evidence);
+      if (perspective.grade === 0 && citedRecords.length === 0) {
+        return { ...perspective, evidenceRecordIds: [], quotes: [] };
+      }
+      if (perspective.grade === 0 || citedRecords.length === 0) {
+        return {
+          ...perspective,
+          grade: 0,
+          summary: "이 관점을 뒷받침할 원문 근거가 부족해요.",
+          uncertainty: "판단에 필요한 행동이나 결과가 기록에 있는지 확인해 보세요.",
+          evidenceRecordIds: [],
+          quotes: [],
+        };
+      }
+
+      const quotes = citedRecords.map(({ recordId, quote }) => ({ recordId, quote }));
+      const evidenceRecordIds = quotes.map(({ recordId }) => recordId);
+      if (perspective.grade === 3 && quotes.length === 1) {
+        return {
+          ...perspective,
+          grade: 1,
+          summary: "이 관점의 단서는 아래 기록 한 건에서 확인돼요.",
+          uncertainty: "서로 다른 기록에서 어떤 변화가 이어졌는지는 확인하기 어려워요.",
+          evidenceRecordIds,
+          quotes,
+        };
+      }
+
+      return { ...perspective, evidenceRecordIds, quotes };
     }),
   };
 }

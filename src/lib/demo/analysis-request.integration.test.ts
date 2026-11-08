@@ -98,7 +98,7 @@ describe("demo analysis request and provider contract", () => {
     expect((await handleDemoAnalysis(request(snapshot), fakeKey)).status).toBe(200);
   });
 
-  it("accepts one record without a thread and rejects inconsistent rubric evidence", async () => {
+  it("accepts one record without a thread and limits a cross-record grade to the evidence", async () => {
     const limited = { ...wireFixture, threads: [], perspectives: wireFixture.perspectives.map((item) => ({ ...item, grade: 0, evidence: [] })) };
     const invalid = structuredClone(wireFixture);
     invalid.perspectives[0].grade = 3;
@@ -109,9 +109,38 @@ describe("demo analysis request and provider contract", () => {
     const accepted = await handleDemoAnalysis(request(demoSnapshot([records[0]])), fakeKey);
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ result: { threads: [], perspectives: limited.perspectives.map(({ aspect }) => ({ aspect, grade: 0, quotes: [] })) } });
-    const rejected = await handleDemoAnalysis(request(snapshot), fakeKey);
-    expect(rejected.status).toBe(422);
-    expect(await rejected.json()).toMatchObject({ stage: "evidence" });
+    const adjusted = await handleDemoAnalysis(request(snapshot), fakeKey);
+    expect(adjusted.status).toBe(200);
+    expect(await adjusted.json()).toMatchObject({
+      result: { perspectives: expect.arrayContaining([expect.objectContaining({
+        aspect: invalid.perspectives[0].aspect, grade: 1, evidenceRecordIds: [records[0].id],
+      })]) },
+    });
+  });
+
+  it("counts excerpts from the same record once and omits only unsupported threads", async () => {
+    const responseFixture = structuredClone(wireFixture);
+    const [first, second] = indexedSubjects(snapshot)
+      .flatMap(({ records }) => records).find(({ id }) => id === 101)!.excerpts;
+    const validThread = responseFixture.threads[0];
+    validThread.connection.evidence.splice(1, 0, second.id);
+    const unsupportedThread = structuredClone(validThread);
+    unsupportedThread.title = "한 기록만 인용한 연결";
+    unsupportedThread.connection.evidence = [first.id, second.id];
+    responseFixture.threads.unshift(unsupportedThread);
+    const inquiry = responseFixture.perspectives.find(({ aspect }) => aspect === "inquiry")!;
+    inquiry.evidence = [first.id, second.id, firstExcerpts.get(102)!];
+    vi.stubGlobal("fetch", vi.fn(async () => geminiResult(responseFixture)));
+
+    const response = await handleDemoAnalysis(request(snapshot), fakeKey);
+    expect(response.status).toBe(200);
+    const { result } = await response.json();
+    expect(result.threads.map(({ title }: { title: string }) => title)).toEqual([validThread.title]);
+    expect(result.threads[0].evidenceRecordIds).toEqual([101, 102, 103]);
+    expect(result.threads[0].connection.evidence[0]).toEqual({ recordId: 101, quote: first.text });
+    expect(result.perspectives.find(({ aspect }: { aspect: string }) => aspect === "inquiry")).toMatchObject({
+      grade: 3, evidenceRecordIds: [101, 102],
+    });
   });
 
   it("asks Gemini to repair missing completion criteria and rejects a repeated vague answer", async () => {
