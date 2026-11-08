@@ -3,6 +3,9 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth/token";
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (pathname === "/review-studio" && process.env.NODE_ENV !== "development") {
+    return new Response("Not found", { status: 404 });
+  }
   if (["/login", "/demo", "/review-studio", "/api/demo-analysis"].includes(pathname)) return NextResponse.next();
 
   const authenticated = verifySessionToken(
