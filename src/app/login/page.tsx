@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArrowRight, LockKeyhole, Route } from "lucide-react";
 import { loginAction } from "@/app/login/actions";
 import { SubmitButton } from "@/components/submit-button";
@@ -22,7 +23,7 @@ export default async function LoginPage({
           </div>
           <div>
             <p className="text-xs font-medium tracking-[0.18em] text-primary uppercase">Student Record Strategy Engine</p>
-            <h1 className="mt-1 text-lg font-semibold">2028 생기부 연결 지도</h1>
+            <h1 className="mt-1 text-lg font-semibold">What to Next</h1>
           </div>
         </div>
 
@@ -57,7 +58,7 @@ export default async function LoginPage({
           </CardContent>
         </Card>
         <p className="mt-5 text-center text-xs leading-5 text-muted-foreground">
-          비밀번호와 분석 자격 증명은 브라우저에 저장되지 않습니다.
+          <Link href="/demo" className="font-semibold text-primary underline underline-offset-4">가상 기록으로 먼저 체험하기</Link>
         </p>
       </div>
     </main>

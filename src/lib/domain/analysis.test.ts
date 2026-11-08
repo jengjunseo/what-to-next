@@ -1,8 +1,8 @@
+import { hashAnalysisInput } from "@/lib/domain/analysis-hash";
 import { describe, expect, it } from "vitest";
 import {
   AnalysisResultSchema,
   effectiveStatus,
-  hashAnalysisInput,
   isAnalysisStale,
   normalizeAnalysisInput,
   validateEvidenceIds,

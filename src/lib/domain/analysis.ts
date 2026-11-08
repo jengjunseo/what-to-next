@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 
 export const THREAD_STATUSES = ["KEEP", "EXTEND_NOW", "RECOVER_LATER", "DROP"] as const;
@@ -107,10 +106,6 @@ export function normalizeAnalysisInput(subjectRows: SubjectInput[]): AnalysisSna
     intendedField: "Computer Science / Software",
     subjects,
   });
-}
-
-export function hashAnalysisInput(snapshot: AnalysisSnapshot) {
-  return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
 }
 
 export function isAnalysisStale(currentInputHash: string, latestInputHash?: string | null) {

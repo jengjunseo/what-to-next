@@ -1,3 +1,4 @@
+import { snapshotEvidence } from "@/lib/domain/evidence";
 import Link from "next/link";
 import { AlertTriangle, ArrowUpRight, BookOpenText, Clock3, Database, Sparkles } from "lucide-react";
 import { AnalysisButton } from "@/components/analysis-button";
@@ -9,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isDatabaseConfigured } from "@/lib/db";
-import { getDashboardData, getEvidenceMap } from "@/lib/db/queries";
+import { getDashboardData } from "@/lib/db/queries";
 import { STATUS_META } from "@/lib/domain/status";
 import type { ThreadStatus } from "@/lib/domain/analysis";
 
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   if (!isDatabaseConfigured()) return <SetupRequired />;
   const data = await getDashboardData();
-  const evidence = await getEvidenceMap(data.latest?.threads.flatMap((thread) => thread.evidenceRecordIds) ?? []);
+  const evidence = snapshotEvidence(data.latest?.run.inputSnapshot);
   const statuses: ThreadStatus[] = ["DROP", "KEEP", "EXTEND_NOW", "RECOVER_LATER"];
 
   return (

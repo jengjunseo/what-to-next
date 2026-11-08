@@ -4,16 +4,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusOverride } from "@/components/status-override";
-import type { RecordEntry, Subject, Thread } from "@/lib/db/schema";
+import type { Thread } from "@/lib/db/schema";
+import type { SnapshotEvidence } from "@/lib/domain/evidence";
 import { effectiveStatus } from "@/lib/domain/analysis";
 import { STATUS_META } from "@/lib/domain/status";
 
-type EvidenceRow = { record: RecordEntry; subject: Subject };
-
-export function ThreadCard({ thread, evidence, compact = false }: { thread: Thread; evidence: Map<number, EvidenceRow>; compact?: boolean }) {
+export function ThreadCard({ thread, evidence, compact = false }: { thread: Thread; evidence: Map<number, SnapshotEvidence>; compact?: boolean }) {
   const status = effectiveStatus(thread.aiStatus, thread.userStatus);
   const meta = STATUS_META[status];
-  const rows = thread.evidenceRecordIds.map((id) => evidence.get(id)).filter(Boolean) as EvidenceRow[];
+  const rows = thread.evidenceRecordIds.map((id) => evidence.get(id)).filter((row) => row !== undefined);
   return (
     <Card className={status === "EXTEND_NOW" ? "border-emerald-400/30 shadow-lg shadow-emerald-950/20" : "border-border/80"}>
       <CardHeader className="gap-3">
@@ -36,10 +35,7 @@ export function ThreadCard({ thread, evidence, compact = false }: { thread: Thre
               <p className="mb-3 flex items-center gap-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase"><BookMarked className="size-3.5" />실제 근거</p>
               <div className="space-y-2">
                 {rows.map(({ record, subject }) => (
-                  <Link key={record.id} href={`/subjects/${subject.id}`} className="group block rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/50">
-                    <div className="mb-1 flex items-center justify-between gap-2"><span className="text-xs font-medium">{subject.grade}-{subject.semester} · {subject.subjectName}</span><span className="font-mono text-[10px] text-muted-foreground">#{record.id}</span></div>
-                    <p className="line-clamp-3 text-xs leading-5 text-muted-foreground">{record.recordText}</p>
-                  </Link>
+                  <details key={record.id} className="rounded-lg border bg-muted/20 p-3"><summary className="cursor-pointer text-xs font-medium">{subject.grade}-{subject.semester} · {subject.subjectName} · #{record.id}</summary><p className="mt-2 whitespace-pre-wrap text-sm leading-6">{record.recordText}</p>{record.memo && <p className="mt-2 text-xs text-muted-foreground">{record.memo}</p>}<Link href={`/subjects/${subject.id}`} className="mt-2 inline-block text-xs text-primary underline">현재 과목 보기</Link></details>
                 ))}
                 {rows.length === 0 && <p className="flex items-center gap-2 text-xs text-amber-300"><ShieldAlert className="size-4" />확인할 수 있는 근거가 없습니다.</p>}
               </div>

@@ -10,10 +10,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "build:sites": "node scripts/build-sites.mjs",
+    "test:unit": "vitest run --exclude **/*.integration.test.ts",
+    "test:integration": "vitest run src/lib/demo/analysis-request.integration.test.ts",
+    "test:e2e": "playwright test",
+    "verify": "node scripts/verify.mjs"
   },
   "dependencies": {
-    "@google/genai": "^2.16.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
@@ -30,11 +34,13 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",

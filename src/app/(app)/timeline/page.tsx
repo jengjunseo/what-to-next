@@ -15,7 +15,7 @@ export default async function TimelinePage() {
   if (!isDatabaseConfigured()) return <SetupRequired />;
   const data = await getDashboardData();
   const recordToSemester = new Map<number, string>();
-  data.subjects.forEach((subject) => subject.records.forEach((record) => recordToSemester.set(record.id, `${subject.grade}-${subject.semester}`)));
+  data.latest?.run.inputSnapshot.subjects.forEach((subject) => subject.records.forEach((record) => recordToSemester.set(record.id, `${subject.grade}-${subject.semester}`)));
 
   return (
     <>

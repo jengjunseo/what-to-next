@@ -1,3 +1,4 @@
+import { snapshotEvidence } from "@/lib/domain/evidence";
 import Link from "next/link";
 import { ArrowRight, GitBranch, ShieldX, Target } from "lucide-react";
 import { PageHeading } from "@/components/page-heading";
@@ -6,7 +7,7 @@ import { ThreadCard } from "@/components/thread-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isDatabaseConfigured } from "@/lib/db";
-import { getEvidenceMap, getLatestAnalysis } from "@/lib/db/queries";
+import { getLatestAnalysis } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function StrategyNowPage() {
   const items = latest?.threads
     .filter((thread) => thread.effectiveStatus === "EXTEND_NOW")
     .sort((a, b) => (a.priorityRank ?? 999) - (b.priorityRank ?? 999)) ?? [];
-  const evidence = await getEvidenceMap(items.flatMap((thread) => thread.evidenceRecordIds));
+  const evidence = snapshotEvidence(latest?.run.inputSnapshot);
 
   return (
     <>

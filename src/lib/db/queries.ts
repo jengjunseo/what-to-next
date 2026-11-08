@@ -1,3 +1,4 @@
+import { hashAnalysisInput } from "@/lib/domain/analysis-hash";
 import "server-only";
 
 import { asc, desc, eq, inArray } from "drizzle-orm";
@@ -5,7 +6,6 @@ import { getDb } from "@/lib/db";
 import { analysisRuns, records, subjects, threads } from "@/lib/db/schema";
 import {
   effectiveStatus,
-  hashAnalysisInput,
   isAnalysisStale,
   normalizeAnalysisInput,
   type AnalysisSnapshot,
@@ -100,17 +100,6 @@ export async function getSubjectDetail(id: number) {
     ? await db.select().from(subjects).where(inArray(subjects.id, [...linkedSubjectIds]))
     : [];
   return { subject, records: subjectRecords, relatedThreads, linkedSubjects };
-}
-
-export async function getEvidenceMap(recordIds: number[]) {
-  const db = getDb();
-  if (recordIds.length === 0) return new Map();
-  const rows = await db
-    .select({ record: records, subject: subjects })
-    .from(records)
-    .innerJoin(subjects, eq(records.subjectId, subjects.id))
-    .where(inArray(records.id, [...new Set(recordIds)]));
-  return new Map(rows.map((row) => [row.record.id, row]));
 }
 
 export async function getAnalysisHistory() {
