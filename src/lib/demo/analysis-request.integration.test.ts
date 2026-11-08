@@ -1,16 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { indexedSubjects } from "@/lib/ai/record-excerpts";
 import { handleDemoAnalysis } from "./analysis-request";
 import { demoSnapshot, fixedResponse, SCENARIOS } from "./scenarios";
 
 const records = SCENARIOS.connected.records;
 const snapshot = demoSnapshot(records);
 const fixture = fixedResponse("connected", records);
+const firstExcerpts = new Map(indexedSubjects(snapshot).flatMap(({ records }) =>
+  records.map(({ id, excerpts }) => [id, excerpts[0].id] as const)));
 const wireFixture = {
-  ...fixture,
-  threads: fixture.threads.map(({ evidenceRecordIds: ids, ...thread }) => {
-    expect(thread.connection?.evidence.map(({ recordId }) => recordId)).toEqual(ids);
-    return thread;
-  }),
+  focus: fixture.overall.biggestProblem,
+  threads: fixture.threads.map(({ title, status, reasoning, connection }) => ({
+    title, status, reasoning,
+    connection: { ...connection!, evidence: connection!.evidence.map(({ recordId }) => firstExcerpts.get(recordId)!) },
+  })),
+  perspectives: fixture.perspectives!.map(({ aspect, grade, summary, uncertainty, quotes }) =>
+    ({ aspect, grade, summary, uncertainty, evidence: quotes?.map(({ recordId }) => firstExcerpts.get(recordId)!) ?? [] })),
 };
 const origin = "http://localhost:3000";
 const fakeKey = "unit-test-credential";
@@ -22,6 +27,7 @@ function request(body: unknown, from = origin) {
     body: JSON.stringify(body),
   });
 }
+
 function geminiResult(value: unknown) {
   return Response.json({ candidates: [{ content: { parts: [{ thought: true, text: "internal thought" }, { text: JSON.stringify(value) }] } }] });
 }
@@ -29,12 +35,17 @@ function geminiResult(value: unknown) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("demo analysis request and provider contract", () => {
-  it("sends a structured output request using the configured model and header, then validates it", async () => {
+  it("resolves an excerpt index to the exact source sentence", async () => {
     const fetchMock = vi.fn(async () => geminiResult(wireFixture));
     vi.stubGlobal("fetch", fetchMock);
     const response = await handleDemoAnalysis(request(snapshot), fakeKey);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ result: fixture });
+    expect(await response.json()).toMatchObject({
+      result: { threads: [{
+        evidenceRecordIds: fixture.threads[0].evidenceRecordIds,
+        connection: { evidence: expect.arrayContaining([{ recordId: 101, quote: "교실 창가와 복도의 온도를 5일간 같은 시각에 재었다." }]) },
+      }] },
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/models\/gemini-3\.5-flash-lite:generateContent$/),
       expect.objectContaining({ headers: expect.objectContaining({ "x-goog-api-key": fakeKey }), body: expect.stringContaining("responseJsonSchema") }),
@@ -63,12 +74,12 @@ describe("demo analysis request and provider contract", () => {
     expect((await handleDemoAnalysis(request("a".repeat(98_305)), fakeKey)).status).toBe(413);
   });
 
-  it("reports invalid schema and nonexistent evidence without returning a result", async () => {
+  it("rejects invalid schema and nonexistent excerpts", async () => {
     const badId = structuredClone(wireFixture);
-    badId.threads[0].connection!.evidence[0].recordId = 999999;
+    badId.threads[0].connection.evidence[0] = 999999;
     vi.stubGlobal("fetch", vi.fn()
       .mockImplementationOnce(() => geminiResult({ threads: [] }))
-      .mockImplementationOnce(() => geminiResult(badId)));
+      .mockImplementation(() => geminiResult(badId)));
     const schema = await handleDemoAnalysis(request(snapshot), fakeKey);
     const evidence = await handleDemoAnalysis(request(snapshot), fakeKey);
     expect(schema.status).toBe(422);
@@ -88,20 +99,29 @@ describe("demo analysis request and provider contract", () => {
   });
 
   it("accepts one record without a thread and rejects inconsistent rubric evidence", async () => {
-    const onlyOne = [records[0]];
-    const shortSnapshot = demoSnapshot(onlyOne);
-    const limited = fixedResponse("personal", onlyOne);
+    const limited = { ...wireFixture, threads: [], perspectives: wireFixture.perspectives.map((item) => ({ ...item, grade: 0, evidence: [] })) };
     const invalid = structuredClone(wireFixture);
-    invalid.perspectives![0].grade = 3;
-    invalid.perspectives![0].evidenceRecordIds = [records[0].id];
+    invalid.perspectives[0].grade = 3;
+    invalid.perspectives[0].evidence = [firstExcerpts.get(records[0].id)!];
     vi.stubGlobal("fetch", vi.fn()
       .mockImplementationOnce(() => geminiResult(limited))
       .mockImplementationOnce(() => geminiResult(invalid)));
-    const accepted = await handleDemoAnalysis(request(shortSnapshot), fakeKey);
+    const accepted = await handleDemoAnalysis(request(demoSnapshot([records[0]])), fakeKey);
     expect(accepted.status).toBe(200);
-    expect(await accepted.json()).toMatchObject({ result: { threads: [], perspectives: limited.perspectives } });
+    expect(await accepted.json()).toMatchObject({ result: { threads: [], perspectives: limited.perspectives.map(({ aspect }) => ({ aspect, grade: 0, quotes: [] })) } });
     const rejected = await handleDemoAnalysis(request(snapshot), fakeKey);
     expect(rejected.status).toBe(422);
     expect(await rejected.json()).toMatchObject({ stage: "evidence" });
+  });
+
+  it("asks Gemini to repair missing completion criteria and rejects a repeated vague answer", async () => {
+    const vague = structuredClone(wireFixture);
+    vague.threads[0].connection.experiment!.done = "짧은 글을 써요.";
+    const fetchMock = vi.fn(async () => geminiResult(vague));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await handleDemoAnalysis(request(snapshot), fakeKey);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ stage: "schema", message: expect.stringContaining("완료 기준") });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

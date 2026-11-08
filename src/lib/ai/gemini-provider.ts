@@ -8,6 +8,17 @@ export const GEMINI_MODEL = "gemini-3.5-flash-lite";
 export async function generateAnalysis(snapshot: AnalysisSnapshot, apiKey: string | undefined) {
   if (!apiKey) throw new AnalysisFailure("configuration", "서버에 Gemini 키를 설정해 주세요.", 503);
 
+  const prompt = buildAnalysisPrompt(snapshot);
+  const signal = AbortSignal.timeout(45_000);
+  try {
+    return await requestAnalysis(snapshot, apiKey, prompt, signal);
+  } catch (error) {
+    if (!(error instanceof AnalysisFailure) || !error.repair || signal.aborted) throw error;
+    return requestAnalysis(snapshot, apiKey, prompt + "\n\n이전 제안 보완: " + error.repair, signal);
+  }
+}
+
+async function requestAnalysis(snapshot: AnalysisSnapshot, apiKey: string, prompt: string, signal: AbortSignal) {
   const responseJsonSchema = z.toJSONSchema(EvidenceResultSchema);
   Reflect.deleteProperty(responseJsonSchema, "$schema");
 
@@ -16,10 +27,10 @@ export async function generateAnalysis(snapshot: AnalysisSnapshot, apiKey: strin
     response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      signal: AbortSignal.timeout(45_000),
+      signal,
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: STRATEGY_SYSTEM_PROMPT }] },
-        contents: [{ role: "user", parts: [{ text: buildAnalysisPrompt(snapshot) }] }],
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
         generationConfig: { responseMimeType: "application/json", responseJsonSchema, temperature: 0.2 },
       }),
     });

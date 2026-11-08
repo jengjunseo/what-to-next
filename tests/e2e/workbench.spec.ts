@@ -23,7 +23,7 @@ test("creates, edits, filters and deletes a record, and compares immutable evide
   await expect(record).toHaveCount(0);
   await page.getByRole("button", { name: "분석 실행" }).click();
   await expect(page.getByRole("heading", { name: "탐구 네트워크 흐름도" })).toBeVisible();
-  await page.getByRole("button", { name: /정보.*#103/ }).click();
+  await page.locator(".wtn-nodes").getByRole("button", { name: /정보.*#103/ }).click();
   await expect(page.getByText("원문 기록 #103 · 정보")).toBeVisible();
   await page.getByRole("button", { name: "타임라인", exact: true }).click();
   await expect(page.getByText("2-2 · 정보 · #103")).toBeVisible();
@@ -38,7 +38,7 @@ test("creates, edits, filters and deletes a record, and compares immutable evide
   await page.getByRole("button", { name: "저장", exact: true }).click();
   await page.getByRole("button", { name: "탐구 흐름 지도", exact: true }).click();
   await expect(page.getByText(/기록 변경됨/)).toBeVisible();
-  await page.getByRole("button", { name: /정보.*#103/ }).click();
+  await page.locator(".wtn-nodes").getByRole("button", { name: /정보.*#103/ }).click();
   await expect(page.locator(".wtn-source").getByText(/온도 센서로 5분마다/)).toBeVisible();
   await page.getByRole("button", { name: "분석 설정" }).click();
   await page.getByRole("button", { name: "분석 실행" }).click();

@@ -9,7 +9,7 @@ const STRATEGIES: Record<ThreadStatus, string> = {
   RECOVER_LATER: "나중에 살펴봐요",
   DROP: "지금은 멈춰요",
 };
-const LEVELS = ["판단하기 어려워요", "단편 근거가 있어요", "과정이 보여요", "여러 기록이 이어져요"];
+const LEVELS = ["기록에 단서 없음", "주제·참여·결과만 확인", "행동과 방법·조건·기준 확인", "서로 다른 기록에서 변화와 차이 확인"];
 
 export function ResultPanel({ run, stale, override, locked, compactHeader }: {
   run: Success;
@@ -22,7 +22,7 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
   const [index, setIndex] = useState(0);
   const [evidenceId, setEvidenceId] = useState<number>();
   const [timeline, setTimeline] = useState(false);
-  const { threads, overall, perspectives, semesterStrategy } = run.result;
+  const { threads, overall, perspectives } = run.result;
   const thread = threads[index];
   const status = thread && effectiveStatus(thread.status, run.overrides[index] ?? null);
   const evidence = thread ? run.records.filter((record) => thread.evidenceRecordIds.includes(record.id))
@@ -30,7 +30,10 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
   const record = evidence.find((record) => record.id === evidenceId) ?? evidence[0];
   const citedIds = new Set([...threads.flatMap((item) => item.evidenceRecordIds),
     ...(perspectives?.flatMap((item) => item.evidenceRecordIds) ?? [])]);
-  const options = threads.reduce((total, item) => total + (item.connection?.options.length ?? 1), 0);
+  const verifiedQuotes = perspectives?.some((item) => item.quotes !== undefined);
+  const options = threads.filter((item) => item.connection?.experiment || item.connection?.experiment === undefined).length;
+  const experiment = thread?.connection?.experiment;
+  const anchor = thread?.connection?.evidence.find((item) => item.recordId === experiment?.recordId);
 
   return <section className="wtn-section" aria-labelledby="wtn-map-title">
     <header className={compactHeader ? "wtn-sr-only" : "wtn-section-heading"}>
@@ -42,11 +45,12 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
 
     {stale && <p className="wtn-warning" role="status">기록 변경됨 · 이전 원문을 보여드려요. 최신 기록을 보려면 다시 분석해 주세요.</p>}
 
+    {run.mode === "gemini" && !verifiedQuotes && <p className="wtn-info">이전 방식으로 작성한 결과예요. 원문 인용과 검증 과제를 보려면 다시 분석해 주세요.</p>}
     <dl className="wtn-metrics">
       {[
         ["읽어 본 기록", run.records.length, "건"],
         ["찾은 연결", threads.length, "갈래"],
-        ["다음 활동 선택지", options, "개"],
+        ["검증 과제", options, "개"],
         ["인용한 원문", citedIds.size, "건"],
       ].map(([label, value, unit]) => <div className="wtn-panel wtn-metric" key={label}>
         <dt>{label}</dt><dd>{value} <small>{unit}</small></dd>
@@ -55,7 +59,6 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
     <p className="wtn-info"><Info size={16} aria-hidden />학교생활 기록을 돌아보고 다음 탐구를 고르는 데 참고해요. 대학의 공식 평가나 합격 예측과는 달라요.</p>
 
     <div className="wtn-map-layout">
-      <div className="wtn-main-column">
         <article ref={graph} className="wtn-panel wtn-graph wtn-reveal" style={{ animationDelay: "60ms" }}>
           <div className="wtn-section-heading">
             <div className="wtn-section-label">
@@ -86,6 +89,43 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
             </>)}
         </article>
 
+      <aside className="wtn-result-rail wtn-reveal" aria-label="전략 보드" style={{ animationDelay: "85ms" }}>
+        <div className="wtn-section-label">
+          <span className="wtn-section-icon"><ClipboardList size={18} aria-hidden /></span>
+          <div><h3>전략 의사결정 보드</h3><p className="wtn-muted">이어갈 탐구를 직접 골라요.</p></div>
+        </div>
+        {threads.map((item, position) => <button type="button" className="wtn-strategy-card" key={position}
+          aria-pressed={index === position} onClick={() => { setIndex(position); setEvidenceId(undefined); }}>
+          <span className="wtn-tag" data-status={run.overrides[position] ?? item.status}>{STRATEGIES[run.overrides[position] ?? item.status]}</span>
+          <strong>{item.title}</strong>
+
+        </button>)}
+        {thread ? <div className="wtn-panel wtn-board-task" key={index}>
+          {experiment && anchor?.quote ? <>
+            <h4><Lightbulb size={17} aria-hidden />이 대목부터 확인해 봐요</h4>
+            <blockquote>{anchor.quote}</blockquote>
+            <p className="wtn-id">원문 #{anchor.recordId} · {run.records.find((item) => item.id === anchor.recordId)?.subject}</p>
+            <p>{experiment.gap}</p>
+            <h4>이렇게 해보세요</h4>
+            <p>{experiment.action}</p>
+            <p className="wtn-muted">{experiment.tool} · {experiment.scope} · 약 {experiment.minutes}분</p>
+            <h4>여기까지 하면 끝이에요</h4>
+            <p>{experiment.done}</p>
+          </> : thread.connection?.experiment === undefined ? <>
+            <h4>당시 제안</h4>
+            <p>{thread.recommendedNextStep}</p>
+          </> : <p className="wtn-muted">이 연결에서 제안할 검증 과제는 없어요.</p>}
+          {override && <div className="wtn-override">
+            <label>내 판단<select value={run.overrides[index] ?? ""} disabled={locked}
+              onChange={(event) => override(index, (event.target.value || undefined) as ThreadStatus | undefined)}>
+              <option value="">분석의 제안 따르기</option>
+              {THREAD_STATUSES.map((value) => <option key={value} value={value}>{STRATEGIES[value]}</option>)}
+            </select></label>
+            <p className="wtn-muted">{run.mode === "gemini" ? "AI 제안" : "고정 응답의 제안"} · {STRATEGIES[thread.status]}</p>
+          </div>}
+        </div> : <p className="wtn-muted">아직 검증 과제가 없어요.</p>}
+      </aside>
+
         {thread && <section className="wtn-story wtn-reveal" style={{ animationDelay: "110ms" }}>
           <div className="wtn-section-label">
             <span className="wtn-section-icon wtn-section-icon-solid"><GitBranch size={18} aria-hidden /></span>
@@ -97,74 +137,44 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
                 {status && <span className="wtn-tag" data-status={status}>{STRATEGIES[status]}</span>}
                 {thread.connection && <span className="wtn-tag">{thread.connection.type} · 근거 {thread.connection.strength}</span>}
               </div>
-              <h3>{thread.title}</h3><p>{thread.description}</p>
+              <h3>{thread.title}</h3>{thread.description !== thread.reasoning && <p>{thread.description}</p>}
             </header>
             <div className="wtn-bridge"><Network size={18} aria-hidden /><p>{thread.reasoning}</p></div>
             {thread.connection && <>
               <section className="wtn-evidence-summaries">
-                <h4>AI가 짚은 원문 근거</h4>
-                <ul>{thread.connection.evidence.map((item) => <li key={item.recordId}>
-                  <button type="button" className="wtn-text-button" onClick={() => { setTimeline(false); setEvidenceId(item.recordId); graph.current?.scrollIntoView({ block: "nearest" }); }}>
-                    원문 #{item.recordId} 보기
-                  </button><p>{item.summary}</p>
-                </li>)}</ul>
+                <h4>기록에서 확인한 문장</h4>
+                <ul>{thread.connection.evidence.map((item) => {
+                  const cited = evidence.find((candidate) => candidate.id === item.recordId);
+                  if (!cited) return null;
+                  return <li key={item.recordId}>
+                    <button type="button" className="wtn-text-button" onClick={() => { setTimeline(false); setEvidenceId(item.recordId); graph.current?.scrollIntoView({ block: "nearest" }); }}>
+                      {cited.subject} 원문 #{item.recordId} 보기
+                    </button>
+                    <blockquote>{item.quote ?? cited.text.slice(0, 120)}</blockquote>
+                  </li>;
+                })}</ul>
               </section>
-              <p className="wtn-muted"><strong>다르게 볼 수도 있어요</strong> · {thread.connection.alternative}</p>
-              <p><strong>스스로 확인해 봐요</strong> · {thread.connection.question}</p>
+              {thread.connection.question && <p><strong>기록에 빠진 질문</strong> · {thread.connection.question}</p>}
             </>}
-            <div className="wtn-next">
-              <Lightbulb size={19} aria-hidden />
-              <div><h4>다음 활동을 골라 봐요</h4>
-                {thread.connection ? <ol>{thread.connection.options.map(({ action, output }, position) =>
-                  <li key={position}><p>{action}</p><p className="wtn-muted">예상 산출물 · {output}</p></li>)}</ol> : <p>{thread.recommendedNextStep}</p>}
-                <p className="wtn-muted">생각해 볼 점 · {thread.avoid}</p>
-              </div>
-            </div>
-            {override && <div className="wtn-override">
-              <label>내 판단<select value={run.overrides[index] ?? ""} disabled={locked}
-                onChange={(event) => override(index, (event.target.value || undefined) as ThreadStatus | undefined)}>
-                <option value="">분석의 제안 따르기</option>
-                {THREAD_STATUSES.map((value) => <option key={value} value={value}>{STRATEGIES[value]}</option>)}
-              </select></label>
-              <p className="wtn-muted">{run.mode === "gemini" ? "AI 제안" : "고정 응답의 제안"} · {STRATEGIES[thread.status]}</p>
-            </div>}
           </article>
         </section>}
 
         {perspectives && <section className="wtn-panel wtn-perspectives wtn-reveal" style={{ animationDelay: "150ms" }}>
-          <h3>여섯 가지 관점에서 봤어요</h3><p className="wtn-muted">근거 수준은 기록이 판단을 얼마나 뒷받침하는지 보여줘요.</p>
+          <h3>여섯 가지 관점에서 봤어요</h3><p className="wtn-muted">기록마다 어떤 단서가 있는지 살펴봐요.</p>
+          <details className="wtn-evidence-guide"><summary>무엇을 근거로 봤나요?</summary><ul>
+            {LEVELS.map((level) => <li key={level}>{level}</li>)}
+          </ul></details>
           {perspectives.map((item) => <details key={item.aspect}>
-            <summary>{PERSPECTIVES[item.aspect]} <span className="wtn-tag">{item.grade}단계 · {LEVELS[item.grade]}</span></summary>
-            <p>{item.summary}</p><p className="wtn-muted">{item.uncertainty}</p>
+            <summary>{PERSPECTIVES[item.aspect]} <span className="wtn-tag">{item.evidenceRecordIds.length ? ("근거 " + item.evidenceRecordIds.length + "건") : "단서 없음"}</span></summary>
+            <p>{item.summary}</p><p className="wtn-muted">{LEVELS[item.grade]} · {item.uncertainty}</p>
             {item.evidenceRecordIds.map((id) => {
               const cited = run.records.find((candidate) => candidate.id === id);
-              return cited && <details key={id}><summary>원문 #{id} · {cited.subject}</summary><p>{cited.text}</p></details>;
+              return cited && <details key={id}><summary>원문 #{id} · {cited.subject}</summary><blockquote>{item.quotes?.find((quote) => quote.recordId === id)?.quote ?? cited.text}</blockquote></details>;
             })}
           </details>)}
         </section>}
-      </div>
 
-      <aside className="wtn-result-rail wtn-reveal" aria-label="전략 보드" style={{ animationDelay: "85ms" }}>
-        <div className="wtn-section-label">
-          <span className="wtn-section-icon"><ClipboardList size={18} aria-hidden /></span>
-          <div><h3>전략 의사결정 보드</h3><p className="wtn-muted">이어갈 탐구를 직접 골라요.</p></div>
-        </div>
-        {threads.map((item, position) => <button type="button" className="wtn-strategy-card" key={position}
-          aria-pressed={index === position} onClick={() => { setIndex(position); setEvidenceId(undefined); }}>
-          <span className="wtn-tag" data-status={run.overrides[position] ?? item.status}>{STRATEGIES[run.overrides[position] ?? item.status]}</span>
-          <strong>{item.title}</strong>
-          {index === position && <span className="wtn-muted">{item.recommendedNextStep}</span>}
-        </button>)}
-        <div className="wtn-panel wtn-coaching">
-          <h3><Lightbulb size={17} aria-hidden />탐구 코칭</h3>
-          <p>{overall.currentProfile}</p>
-          <p>{overall.strategySummary}</p>
-          <details><summary>학기별 선택지 살펴보기</summary>
-            <dl><dt>고2 2학기에 해본다면</dt><dd>{semesterStrategy.secondYearSecondSemester}</dd>
-              <dt>고3 1학기에 해본다면</dt><dd>{semesterStrategy.thirdYearFirstSemester}</dd></dl>
-          </details>
-        </div>
-      </aside>
+
     </div>
   </section>;
 }

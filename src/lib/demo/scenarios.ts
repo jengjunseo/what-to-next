@@ -26,7 +26,7 @@ export const SCENARIOS = {
     status: "EXTEND_NOW",
     thread: "교실 온도 관찰에서 센서 검증으로",
     reasoning: "수동 관측에서 확인한 장소별 차이를 통계로 비교하고, 센서 구현에서는 측정 오류를 줄이는 방법을 시험했다.",
-    next: "같은 센서 두 대를 창가와 복도에 두고 일주일간 측정하세요. 위치를 중간에 교환한 뒤 원본과 이동평균에서 같은 차이가 나타나는지 비교해 보세요.",
+    next: "온도값 12개에 3회 이동평균을 적용하고, 이웃한 값의 차가 2℃를 넘은 횟수를 원본과 비교해 보세요.",
   },
   weak: {
     title: "연결 근거가 약한 기록",
@@ -126,12 +126,27 @@ export function fixedResponse(workspace: WorkspaceId, records: DemoRecord[]): An
       connection: {
         type: workspace === "repeated" ? "주제 반복" : "방법 개선",
         strength: workspace === "repeated" ? "낮음" : "높음",
-        evidence: evidence.map(({ id, text }) => ({ recordId: id, summary: text })),
-        alternative: workspace === "repeated"
-          ? "공통 키워드는 있지만, 나중 활동이 앞선 질문에서 출발했는지 알기 어려워요."
-          : "활동 순서가 이어져 보여요. 앞선 결과를 보고 실험을 바꿨는지는 확인해 보세요.",
-        question: "이전 기록을 떠올렸을 때, 다음 활동에서 직접 바꾼 건 무엇인가요?",
-        options: [{ action: next, output: "비교 조건과 결과를 적은 표 한 장이에요." }],
+        evidence: evidence.map(({ id, text }) => ({ recordId: id, quote: text })),
+        question: workspace === "repeated"
+          ? "사회 발표에 같은 사례를 넣을 때, 정보 시간과 비교해 확인하려던 기준이 달랐나요?"
+          : "이동평균을 쓰고 나서 위치가 바뀐 시점도 늦게 보였나요?",
+        experiment: workspace === "repeated" ? {
+          recordId: 403,
+          gap: "같은 예시를 소개한 뒤, 답변에 실제로 확인할 수 있는 출처가 있는지는 살펴보지 않았어요.",
+          action: "같은 질문을 출처 요청 문장 없이 한 번, 출처를 요청해 한 번 입력해 보세요. 열린 출처에서 답변의 주장을 찾을 수 있는지 비교해요.",
+          tool: "사용할 수 있는 생성형 AI와 스프레드시트",
+          scope: "질문 5개 × 요청 조건 2가지",
+          minutes: 45,
+          done: "응답 10건의 출처 존재와 주장 일치 여부를 표 1개에 표시하면 끝이에요.",
+        } : {
+          recordId: 103,
+          gap: "이동평균을 적용했지만, 순간적으로 큰 차이가 난 횟수는 기록에 없어요.",
+          action: next,
+          tool: "스프레드시트",
+          scope: "5분 간격 온도값 12개",
+          minutes: 40,
+          done: "원본과 이동평균의 2℃ 초과 횟수를 표 1개에 적고, 차이를 1문장으로 설명해요.",
+        },
       },
     }] : [],
     semesterStrategy: {
@@ -144,11 +159,12 @@ export function fixedResponse(workspace: WorkspaceId, records: DemoRecord[]): An
           aspect,
           grade: workspace === "connected" ? 3 : 1,
           evidenceRecordIds: evidence.map(({ id }) => id),
+          quotes: evidence.map(({ id, text }) => ({ recordId: id, quote: text })),
           summary: scenario.reasoning,
           uncertainty: "학생이 각 활동에서 어떤 결정을 직접 했는지는 더 확인해 보세요.",
         };
       }
-      return { aspect, grade: 0, evidenceRecordIds: [], summary: "기록만으로 판단하기 어려워요.", uncertainty };
+      return { aspect, grade: 0, evidenceRecordIds: [], quotes: [], summary: "기록만으로 판단하기 어려워요.", uncertainty };
     }),
   };
 }

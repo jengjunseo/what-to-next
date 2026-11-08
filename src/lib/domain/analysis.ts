@@ -17,21 +17,35 @@ export const PERSPECTIVES = {
   collaboration: "협업과 공동체 기여",
 } as const;
 
+const QuoteSchema = z.object({ recordId, quote: text.max(180) }).strict();
+
+const ExperimentSchema = z.object({
+  recordId,
+  gap: text,
+  action: text,
+  tool: text,
+  scope: text,
+  minutes: z.number().int().min(15).max(180),
+  done: text,
+}).strict();
+
 const PerspectiveSchema = z.object({
   aspect: z.enum(Object.keys(PERSPECTIVES) as [keyof typeof PERSPECTIVES, ...(keyof typeof PERSPECTIVES)[]]),
   grade: z.number().int().min(0).max(3),
   evidenceRecordIds: z.array(recordId),
   summary: text,
   uncertainty: text,
+  quotes: z.array(QuoteSchema).optional(),
 }).strict();
 
 const ConnectionSchema = z.object({
   type: z.enum(["주제 반복", "개념 확장", "방법 개선", "관점 변화", "공동체 적용", "관련성 약함"]),
   strength: z.enum(["높음", "중간", "낮음"]),
-  evidence: z.array(z.object({ recordId, summary: text }).strict()).min(2),
-  alternative: text,
-  question: text,
-  options: z.array(z.object({ action: text, output: text }).strict()).min(1).max(3),
+  evidence: z.array(z.object({ recordId, summary: text.optional(), quote: text.optional() }).strict()).min(2),
+  alternative: text.optional(),
+  question: text.nullable(),
+  options: z.array(z.object({ action: text, output: text }).strict()).min(1).max(3).optional(),
+  experiment: ExperimentSchema.nullable().optional(),
 }).strict();
 
 const ThreadSchema = z.object({
@@ -71,12 +85,18 @@ export const AnalysisResultSchema = z.object({
   perspectives: z.array(PerspectiveSchema).length(6).optional(),
 }).strict();
 
-export const EvidenceResultSchema = AnalysisResultSchema.extend({
-  threads: z.array(ThreadSchema.omit({ evidenceRecordIds: true }).extend({
-    connection: ConnectionSchema,
-  })),
-  perspectives: z.array(PerspectiveSchema).length(6),
-});
+export const EvidenceResultSchema = z.object({
+  focus: text,
+  threads: z.array(ThreadSchema.pick({ title: true, status: true, reasoning: true }).extend({
+    connection: ConnectionSchema.pick({ type: true, strength: true, question: true }).extend({
+      evidence: z.array(recordId).min(2).max(4),
+      experiment: ExperimentSchema.nullable(),
+    }),
+  })).max(4),
+  perspectives: z.array(PerspectiveSchema.omit({ evidenceRecordIds: true, quotes: true }).extend({
+    evidence: z.array(recordId).max(3),
+  })).length(6),
+}).strict();
 
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 
