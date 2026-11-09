@@ -25,6 +25,18 @@ test("creates, edits, filters and deletes a record, and compares immutable evide
   await expect(page.getByRole("heading", { name: "탐구 네트워크 흐름도" })).toBeVisible();
   await page.locator(".wtn-nodes").getByRole("button", { name: /정보.*#103/ }).click();
   await expect(page.getByText("원문 기록 #103 · 정보")).toBeVisible();
+  const quote = page.locator(".wtn-source").getByRole("button", { name: "정보 원문 전체 보기" });
+  await expect(quote).toHaveText("온도 센서로 5분마다 측정값을 기록하는 프로그램을 구현했다.…전체 보기");
+  await quote.click();
+  const original = page.getByRole("dialog", { name: "기록 원문" });
+  await expect(original).toContainText("실내 이동 시 순간값이 튀어 3회 이동평균을 적용하고 원본과 비교했다.");
+  await original.getByRole("button", { name: "닫기" }).click();
+  await expect(original).not.toBeVisible();
+  await expect(quote).toBeFocused();
+  await page.getByLabel("요약할 과목").selectOption("국어");
+  const subject = page.getByRole("region", { name: "과목별로 살펴봐요" });
+  await expect(subject).toContainText("교실 환경을 조사한 결과를 발표했어요.");
+  await expect(subject).toContainText("교실 2곳의 창가와 복도를 재고");
   await page.getByRole("button", { name: "타임라인", exact: true }).click();
   await expect(page.getByText("2-2 · 정보 · #103")).toBeVisible();
   await page.getByLabel("내 판단").selectOption("KEEP");

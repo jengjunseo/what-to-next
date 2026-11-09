@@ -18,6 +18,7 @@ export const PERSPECTIVES = {
 } as const;
 
 const QuoteSchema = z.object({ recordId, quote: text.max(180) }).strict();
+const SubjectNoteSchema = QuoteSchema.extend({ point: text, next: text.nullable() });
 
 const ExperimentSchema = z.object({
   recordId,
@@ -83,6 +84,7 @@ export const AnalysisResultSchema = z.object({
     thirdYearFirstSemester: text,
   }).strict(),
   perspectives: z.array(PerspectiveSchema).length(6).optional(),
+  subjectNotes: z.array(SubjectNoteSchema).optional(),
 }).strict();
 
 export const EvidenceResultSchema = z.object({
@@ -96,6 +98,7 @@ export const EvidenceResultSchema = z.object({
   perspectives: z.array(PerspectiveSchema.omit({ evidenceRecordIds: true, quotes: true }).extend({
     evidence: z.array(recordId).max(3),
   })).length(6),
+  subjectNotes: z.array(SubjectNoteSchema.omit({ recordId: true, quote: true }).extend({ excerptId: recordId })).optional(),
 }).strict();
 
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
@@ -173,6 +176,7 @@ export function validateEvidenceIds(result: AnalysisResult, validIds: Iterable<n
       ...(thread.connection?.evidence.map(({ recordId }) => recordId) ?? []),
     ]),
     ...(result.perspectives?.flatMap((item) => item.evidenceRecordIds) ?? []),
+    ...(result.subjectNotes?.map(({ recordId }) => recordId) ?? []),
   ];
   const invalid = cited.filter((id) => !valid.has(id));
   if (invalid.length) {

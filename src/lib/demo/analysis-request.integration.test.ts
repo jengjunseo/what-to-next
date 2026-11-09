@@ -150,6 +150,26 @@ describe("demo analysis request and provider contract", () => {
     });
   });
 
+  it("keeps one grounded note per course, including courses outside the connected threads", async () => {
+    const note = { excerptId: firstExcerpts.get(104)!, point: "교실 환경 조사 결과를 발표했어요.", next: null };
+    const fetchMock = vi.fn(async () => geminiResult({
+      ...wireFixture,
+      subjectNotes: [
+        { ...note, excerptId: 999999 },
+        note,
+        { ...note, point: "중복 과목이에요." },
+      ],
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await handleDemoAnalysis(request(snapshot), fakeKey);
+    expect(response.status).toBe(200);
+    const { result } = await response.json();
+    expect(result.threads[0].evidenceRecordIds).not.toContain(104);
+    expect(result.subjectNotes).toEqual([{
+      recordId: 104, quote: "교실 환경 조사 결과를 발표했다.", point: note.point, next: null,
+    }]);
+  });
+
   it("counts excerpts from the same record once and omits only unsupported threads", async () => {
     const responseFixture = structuredClone(wireFixture);
     const [first, second] = indexedSubjects(snapshot)

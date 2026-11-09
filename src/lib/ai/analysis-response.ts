@@ -46,6 +46,13 @@ function analysisFromProvider(value: unknown, snapshot: AnalysisSnapshot): Analy
     return { ...thread, connection: { ...details, experiment: groundedExperiment }, citations };
   }).filter(({ citations }) => citations.length >= 2);
 
+  const subjectNotes = new Map<string, NonNullable<AnalysisResult["subjectNotes"]>[number]>();
+  for (const { excerptId, point, next } of data.subjectNotes ?? []) {
+    const excerpt = excerpts.get(excerptId);
+    if (!excerpt || subjectNotes.has(excerpt.subject)) continue;
+    subjectNotes.set(excerpt.subject, { recordId: excerpt.recordId, quote: excerpt.quote, point, next });
+  }
+
   let rank = 0;
   return {
     overall: {
@@ -69,6 +76,7 @@ function analysisFromProvider(value: unknown, snapshot: AnalysisSnapshot): Analy
       secondYearSecondSemester: data.focus,
       thirdYearFirstSemester: data.focus,
     },
+    subjectNotes: [...subjectNotes.values()],
     perspectives: data.perspectives.map(({ evidence, ...perspective }) => {
       const citedRecords = distinctRecords(evidence);
       if (perspective.grade === 0 && citedRecords.length === 0) {

@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
 import { ArrowRight, ClipboardList, GitBranch, Info, Lightbulb, Network } from "lucide-react";
+import { recordExcerpts } from "@/lib/ai/record-excerpts";
 import { effectiveStatus, PERSPECTIVES, THREAD_STATUSES, type ThreadStatus } from "@/lib/domain/analysis";
 import { MODE_LABELS, type Success } from "@/lib/demo/runs";
+import type { DemoRecord } from "@/lib/demo/scenarios";
 
 const STRATEGIES: Record<ThreadStatus, string> = {
   EXTEND_NOW: "지금 확장해요",
@@ -11,6 +13,20 @@ const STRATEGIES: Record<ThreadStatus, string> = {
 };
 const LEVELS = ["기록에 단서 없음", "주제·참여·결과만 확인", "행동과 방법·조건·기준 확인", "서로 다른 기록에서 변화와 차이 확인"];
 
+function OriginalPreview({ record, quote, open }: {
+  record: DemoRecord;
+  quote?: string;
+  open: (record: DemoRecord) => void;
+}) {
+  const sentence = recordExcerpts(quote ?? record.text)[0] ?? "";
+  const preview = sentence.slice(0, 96).trimEnd();
+  return <button type="button" className="wtn-quote-preview" aria-haspopup="dialog"
+    aria-label={record.subject + " 원문 전체 보기"} onClick={() => open(record)}>
+    <span>{preview}{preview !== record.text.trim() ? "…" : ""}</span>
+    <small>전체 보기</small>
+  </button>;
+}
+
 export function ResultPanel({ run, stale, override, locked, compactHeader }: {
   run: Success;
   stale: boolean;
@@ -18,22 +34,36 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
   locked?: boolean;
   compactHeader?: boolean;
 }) {
-  const graph = useRef<HTMLElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [original, setOriginal] = useState<DemoRecord>();
+  const [selectedSubject, setSelectedSubject] = useState<string>();
   const [index, setIndex] = useState(0);
   const [evidenceId, setEvidenceId] = useState<number>();
   const [timeline, setTimeline] = useState(false);
-  const { threads, overall, perspectives } = run.result;
+  const { threads, overall, perspectives, subjectNotes } = run.result;
   const thread = threads[index];
   const status = thread && effectiveStatus(thread.status, run.overrides[index] ?? null);
   const evidence = thread ? run.records.filter((record) => thread.evidenceRecordIds.includes(record.id))
     .sort((a, b) => a.grade - b.grade || a.semester - b.semester || a.id - b.id) : [];
   const record = evidence.find((record) => record.id === evidenceId) ?? evidence[0];
   const citedIds = new Set([...threads.flatMap((item) => item.evidenceRecordIds),
-    ...(perspectives?.flatMap((item) => item.evidenceRecordIds) ?? [])]);
+    ...(perspectives?.flatMap((item) => item.evidenceRecordIds) ?? []),
+    ...(subjectNotes?.map((item) => item.recordId) ?? [])]);
   const verifiedQuotes = perspectives?.some((item) => item.quotes !== undefined);
   const options = threads.filter((item) => item.connection?.experiment || item.connection?.experiment === undefined).length;
   const experiment = thread?.connection?.experiment;
   const anchor = thread?.connection?.evidence.find((item) => item.recordId === experiment?.recordId);
+  const anchorRecord = evidence.find((item) => item.id === anchor?.recordId);
+  const subjects = [...new Set(run.records.map((item) => item.subject.trim()))];
+  const subject = subjects.includes(selectedSubject ?? "") ? selectedSubject : subjects[0];
+  const subjectRecords = run.records.filter((item) => item.subject.trim() === subject);
+  const subjectNote = subjectNotes?.find((item) => subjectRecords.some((record) => record.id === item.recordId));
+  const subjectRecord = subjectRecords.find((record) => record.id === subjectNote?.recordId) ?? subjectRecords[0];
+
+  function openOriginal(record: DemoRecord) {
+    setOriginal(record);
+    dialog.current?.showModal();
+  }
 
   return <section className="wtn-section" aria-labelledby="wtn-map-title">
     <header className={compactHeader ? "wtn-sr-only" : "wtn-section-heading"}>
@@ -58,12 +88,28 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
     </dl>
     <p className="wtn-info"><Info size={16} aria-hidden />학교생활 기록을 돌아보고 다음 탐구를 고르는 데 참고해요. 대학의 공식 평가나 합격 예측과는 달라요.</p>
 
+    {subjectRecord && <section className="wtn-panel wtn-subject-notes wtn-reveal" aria-labelledby="wtn-subject-notes-title">
+      <div className="wtn-section-heading">
+        <h3 id="wtn-subject-notes-title">과목별로 살펴봐요</h3>
+        <select aria-label="요약할 과목" value={subject} onChange={(event) => setSelectedSubject(event.target.value)}>
+          {subjects.map((name) => <option key={name}>{name}</option>)}
+        </select>
+      </div>
+      <div className="wtn-subject-note">
+        <div><h4>생기부 포인트</h4><p>{subjectNote?.point ?? "이 과목은 아래 원문부터 살펴봐요."}</p></div>
+        <div><h4>다음에는 이렇게 할 수 있어요</h4><p>{subjectNote?.next ?? (subjectNotes
+          ? "다음 활동을 제안할 단서가 부족해요."
+          : "Gemini 실분석을 다시 실행하면 이 과목의 제안을 볼 수 있어요.")}</p></div>
+      </div>
+      <OriginalPreview record={subjectRecord} quote={subjectNote?.quote} open={openOriginal} />
+    </section>}
+
     <div className="wtn-map-layout">
-        <article ref={graph} className="wtn-panel wtn-graph wtn-reveal" style={{ animationDelay: "60ms" }}>
+        <article className="wtn-panel wtn-graph wtn-reveal" style={{ animationDelay: "60ms" }}>
           <div className="wtn-section-heading">
             <div className="wtn-section-label">
               <span className="wtn-section-icon"><Network size={18} aria-hidden /></span>
-              <div><h3>탐구 네트워크 흐름도</h3><p className="wtn-muted">과목을 누르면 당시 기록을 바로 볼 수 있어요.</p></div>
+              <div><h3>탐구 네트워크 흐름도</h3><p className="wtn-muted">과목을 골라 원문 한 문장을 살펴봐요.</p></div>
             </div>
             {thread && <div className="wtn-actions" aria-label="근거 보기 방식">
               <button type="button" aria-pressed={!timeline} onClick={() => setTimeline(false)}>연결 보기</button>
@@ -72,7 +118,9 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
           </div>
           {!thread && <div className="wtn-empty"><Network size={22} /><h3>기록만으로 연결을 찾기 어려워요</h3><p>{overall.biggestProblem}</p></div>}
           {thread && (timeline ? <ol className="wtn-timeline">{evidence.map((item) =>
-            <li key={item.id}><p className="wtn-id">{item.grade}-{item.semester} · {item.subject} · #{item.id}</p><p>{item.text}</p></li>)}</ol>
+            <li key={item.id}><p className="wtn-id">{item.grade}-{item.semester} · {item.subject} · #{item.id}</p>
+              <OriginalPreview record={item} quote={thread.connection?.evidence.find(({ recordId }) => recordId === item.id)?.quote} open={openOriginal} />
+            </li>)}</ol>
             : <>
               <div className="wtn-nodes">
                 {evidence.map((item, position) => <div key={item.id}>
@@ -84,7 +132,7 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
               </div>
               {record && <div className="wtn-source" aria-live="polite">
                 <p className="wtn-eyebrow">원문 기록 #{record.id} · {record.subject}</p>
-                <p>{record.text}</p>{record.memo && <p className="wtn-muted">메모 · {record.memo}</p>}
+                <OriginalPreview record={record} quote={thread.connection?.evidence.find(({ recordId }) => recordId === record.id)?.quote} open={openOriginal} />
               </div>}
             </>)}
         </article>
@@ -101,10 +149,9 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
 
         </button>)}
         {thread ? <div className="wtn-panel wtn-board-task" key={index}>
-          {experiment && anchor?.quote ? <>
+          {experiment && anchor?.quote && anchorRecord ? <>
             <h4><Lightbulb size={17} aria-hidden />이 대목부터 확인해 봐요</h4>
-            <blockquote>{anchor.quote}</blockquote>
-            <p className="wtn-id">원문 #{anchor.recordId} · {run.records.find((item) => item.id === anchor.recordId)?.subject}</p>
+            <OriginalPreview record={anchorRecord} quote={anchor.quote} open={openOriginal} />
             <p>{experiment.gap}</p>
             <h4>이렇게 해보세요</h4>
             <p>{experiment.action}</p>
@@ -140,22 +187,7 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
               <h3>{thread.title}</h3>{thread.description !== thread.reasoning && <p>{thread.description}</p>}
             </header>
             <div className="wtn-bridge"><Network size={18} aria-hidden /><p>{thread.reasoning}</p></div>
-            {thread.connection && <>
-              <section className="wtn-evidence-summaries">
-                <h4>기록에서 확인한 문장</h4>
-                <ul>{thread.connection.evidence.map((item) => {
-                  const cited = evidence.find((candidate) => candidate.id === item.recordId);
-                  if (!cited) return null;
-                  return <li key={item.recordId}>
-                    <button type="button" className="wtn-text-button" onClick={() => { setTimeline(false); setEvidenceId(item.recordId); graph.current?.scrollIntoView({ block: "nearest" }); }}>
-                      {cited.subject} 원문 #{item.recordId} 보기
-                    </button>
-                    <blockquote>{item.quote ?? cited.text.slice(0, 120)}</blockquote>
-                  </li>;
-                })}</ul>
-              </section>
-              {thread.connection.question && <p><strong>기록에 빠진 질문</strong> · {thread.connection.question}</p>}
-            </>}
+            {thread.connection?.question && <p><strong>기록에 빠진 질문</strong> · {thread.connection.question}</p>}
           </article>
         </section>}
 
@@ -169,12 +201,26 @@ export function ResultPanel({ run, stale, override, locked, compactHeader }: {
             <p>{item.summary}</p><p className="wtn-muted">{LEVELS[item.grade]} · {item.uncertainty}</p>
             {item.evidenceRecordIds.map((id) => {
               const cited = run.records.find((candidate) => candidate.id === id);
-              return cited && <details key={id}><summary>원문 #{id} · {cited.subject}</summary><blockquote>{item.quotes?.find((quote) => quote.recordId === id)?.quote ?? cited.text}</blockquote></details>;
+              return cited && <div className="wtn-perspective-quote" key={id}>
+                <p className="wtn-id">{cited.subject} · 원문 #{id}</p>
+                <OriginalPreview record={cited} quote={item.quotes?.find((quote) => quote.recordId === id)?.quote} open={openOriginal} />
+              </div>;
             })}
           </details>)}
         </section>}
 
 
     </div>
+    <dialog className="wtn-original-dialog" ref={dialog} aria-labelledby="wtn-original-title">
+      <div className="wtn-section-heading">
+        <h3 id="wtn-original-title">기록 원문</h3>
+        <form method="dialog"><button type="submit" className="wtn-soft-button">닫기</button></form>
+      </div>
+      {original && <>
+        <p className="wtn-eyebrow">{original.subject} · {original.grade}학년 {original.semester}학기 · #{original.id}</p>
+        <p className="wtn-original-text">{original.text}</p>
+        {original.memo && <p className="wtn-muted">메모 · {original.memo}</p>}
+      </>}
+    </dialog>
   </section>;
 }

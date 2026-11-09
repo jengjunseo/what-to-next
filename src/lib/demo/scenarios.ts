@@ -1,4 +1,5 @@
 import { normalizeAnalysisInput, PERSPECTIVES, type AnalysisResult, type ThreadStatus } from "@/lib/domain/analysis";
+import { recordExcerpts } from "@/lib/ai/record-excerpts";
 
 export type DemoRecord = {
   id: number;
@@ -80,6 +81,21 @@ export type ScenarioId = keyof typeof SCENARIOS;
 export type WorkspaceId = ScenarioId | "personal";
 export const SCENARIO_IDS = Object.keys(SCENARIOS) as ScenarioId[];
 
+const EXAMPLE_NOTES: Record<number, [point: string, next: string]> = {
+  101: ["창가와 복도의 온도를 같은 시각에 5일간 재서 위치별 차이를 살폈어요.", "같은 두 지점에서 오전과 오후에 3일간 온도를 재고, 시간대별 온도 차를 표 1개에 적어 보세요."],
+  102: ["온도 차를 상자그림으로 그려 일조량에 따라 나눠 봤어요.", "같은 온도 자료를 맑은 날과 흐린 날로 나눠 상자그림 2개를 그리고 중앙값 차이를 적어 보세요."],
+  103: ["온도 센서가 5분마다 측정값을 저장하도록 프로그램을 만들었어요.", "같은 위치에서 30분간 1분 간격으로 재고, 그중 5분 간격으로만 뽑은 값과 최고 온도가 몇 도 차이 나는지 비교해 보세요."],
+  104: ["교실 환경을 조사한 결과를 발표했어요.", "같은 시각에 교실 2곳의 창가와 복도를 재고, 앞선 발표의 결론이 두 교실에 모두 맞는지 표 1개로 확인해 보세요."],
+  201: ["명암 대비를 바꾼 포스터 세 장으로 가독성을 비교했어요.", "같은 거리에서 포스터 3장의 제목을 읽는 시간을 각각 3회 재고 평균을 표로 비교해 보세요."],
+  202: ["지역 하천 수위를 조사하고 비가 많이 온 날을 따로 표시했어요.", "비가 많이 온 날 3일과 다음 날의 수위를 짝지어, 어느 날 수위가 더 높았는지 표에 적어 보세요."],
+  203: ["재생에너지 영어 기사 한 편의 핵심 주장을 발표했어요.", "같은 에너지원의 단점을 다룬 영어 기사 1편을 골라 두 기사에서 근거로 쓴 수치와 출처를 표로 비교해 보세요."],
+  301: ["산·염기 지시약 비교 실험에 참여했어요.", "수업에서 쓴 지시약으로 두 용액의 색 변화를 각각 3회 확인하고 결과를 표에 남겨 보세요."],
+  302: ["데이터 시각화 과제를 제출했어요.", "같은 자료를 막대그래프와 꺾은선그래프로 그려, 각 그래프에서 먼저 보이는 차이를 한 문장씩 써 보세요."],
+  401: ["생성형 AI의 정의와 활용 사례 세 가지를 조사해 발표했어요.", "발표에 나온 사례 1개를 골라 같은 요청을 3회 실행하고 답마다 바뀐 내용 1개를 기록해 보세요."],
+  402: ["영어 자료에서 생성형 AI 활용 사례 세 가지를 찾았어요.", "영어 기사 2편이 같은 AI 활용 사례를 어떻게 설명하는지 보고, 효과를 뒷받침하는 근거를 기사별로 하나씩 표시해 보세요."],
+  403: ["생성형 AI 활용 분야를 소개하는 자료를 만들었어요.", "발표 사례 1개에서 AI를 쓸 수 있는 상황과 곤란한 상황을 각각 골라, 두 상황에 적용할 기준 1개를 적어 보세요."],
+};
+
 export function demoSnapshot(records: DemoRecord[]) {
   const subjects = new Map<string, Parameters<typeof normalizeAnalysisInput>[0][number]>();
   for (const record of [...records].sort((a, b) => a.id - b.id)) {
@@ -153,6 +169,11 @@ export function fixedResponse(workspace: WorkspaceId, records: DemoRecord[]): An
       secondYearSecondSemester: next,
       thirdYearFirstSemester: "결과와 한계를 원래 기록과 비교하고 다음 질문을 정리해 보세요.",
     },
+    subjectNotes: unchanged ? records.flatMap(({ id, text }) => {
+      const note = EXAMPLE_NOTES[id];
+      const quote = recordExcerpts(text)[0];
+      return note && quote ? [{ recordId: id, quote, point: note[0], next: note[1] }] : [];
+    }) : undefined,
     perspectives: (Object.keys(PERSPECTIVES) as (keyof typeof PERSPECTIVES)[]).map((aspect) => {
       if (linked && aspect === "inquiry") {
         return {
